@@ -1,24 +1,34 @@
 import streamlit as st
 import pandas as pd
 import os
-
+import requests
+from io import BytesIO
 
 def main():
     # 设置页面标题
     st.title('加急采购单 - 待到货数据')
 
-    # 定义文件路径
-    file_path = r'C:\Users\yjbq\Desktop\发货计划\采购单加急\Urgent purchase order.xlsx'
-
-    # 检查文件是否存在
-    if not os.path.exists(file_path):
-        st.error(f"文件不存在: {file_path}")
-        st.error("请检查文件路径是否正确")
-        return
-
+    # 新增：直接读取GitHub仓库中的数据文件
+    st.subheader("数据加载中...")
     try:
-        # 读取Excel文件
-        df = pd.read_excel(file_path)
+        # 正确的Raw格式链接
+        data_url = "https://github.com/Jane-zzz-123/---/blob/main/Urgent%20purchase%20order.xlsx"
+
+        # 从URL读取数据
+        response = requests.get(data_url)
+        response.raise_for_status()  # 检查请求是否成功
+        excel_data = BytesIO(response.content)
+        import pandas as pd  # 导入pandas库并命名为pd
+
+        # 只读取存在的"Sheet1"sheet
+        current_data = pd.read_excel(
+            excel_data,
+            sheet_name="Sheet1",
+            engine='openpyxl'  # 明确指定引擎
+        )
+
+        # 将读取到的数据赋值给df变量
+        df = current_data  # 关键：把current_data的数据传递给df
 
         # 显示原始数据的列名，帮助确认列名是否正确
         with st.expander("查看所有列名（用于确认）"):
