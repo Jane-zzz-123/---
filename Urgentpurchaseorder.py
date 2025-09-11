@@ -40,18 +40,18 @@ def main():
             st.write(df.columns.tolist())
 
         # 检查是否有必要的列
-        required_columns = ["是否到货", "店铺"]
+        required_columns = ["判断是否到货", "店铺"]
         missing_required = [col for col in required_columns if col not in df.columns]
         if missing_required:
             st.error(f"数据中缺少必要的列：{', '.join(missing_required)}，请检查列名是否正确")
             return
 
         # 筛选出"是否到货=待到货"的数据
-        filtered_df = df[df["是否到货"] == "待到货"]
+        filtered_df = df[df["判断是否到货"] == "待到货"]
 
         # 检查是否有符合条件的数据
         if filtered_df.empty:
-            st.info("没有找到'是否到货=待到货'的数据")
+            st.info("没有找到'判断是否到货=待到货'的数据")
             return
 
         # 获取所有店铺列表并排序
