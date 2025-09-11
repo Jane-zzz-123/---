@@ -4,6 +4,7 @@ import os
 import requests
 from io import BytesIO
 
+
 def main():
     # 设置页面标题
     st.title('加急采购单 - 待到货数据')
@@ -11,14 +12,17 @@ def main():
     # 新增：直接读取GitHub仓库中的数据文件
     st.subheader("数据加载中...")
     try:
-        # 正确的Raw格式链接
-        data_url = "https://github.com/Jane-zzz-123/---/blob/main/Urgentpurchaseorder.xlsx"
+        # 注意：需要将GitHub文件链接转换为raw格式
+        # 正确格式应该是：https://raw.githubusercontent.com/用户名/仓库名/分支名/文件名
+        # 请根据你的实际仓库信息修改下面的URL
+        data_url = "https://raw.githubusercontent.com/Jane-zzz-123/---/main/Urgentpurchaseorder.xlsx"
 
         # 从URL读取数据
         response = requests.get(data_url)
         response.raise_for_status()  # 检查请求是否成功
+
+        # 将内容转换为可读取的Excel格式
         excel_data = BytesIO(response.content)
-        import pandas as pd  # 导入pandas库并命名为pd
 
         # 只读取存在的"Sheet1"sheet
         current_data = pd.read_excel(
@@ -28,7 +32,7 @@ def main():
         )
 
         # 将读取到的数据赋值给df变量
-        df = current_data  # 关键：把current_data的数据传递给df
+        df = current_data
 
         # 显示原始数据的列名，帮助确认列名是否正确
         with st.expander("查看所有列名（用于确认）"):
@@ -73,8 +77,8 @@ def main():
             "待到货数量", "预计到货时间", "物流单号"
         ]
 
-        # 检查所需的列是否都存在
-        missing_columns = [col for col in columns_to_display if col in filtered_by_store.columns]
+        # 检查所需的列是否都存在（修复了之前的逻辑错误）
+        missing_columns = [col for col in columns_to_display if col not in filtered_by_store.columns]
         if missing_columns:
             st.warning(f"以下列在数据中未找到，将不会显示：{', '.join(missing_columns)}")
             # 只保留存在的列
@@ -96,6 +100,8 @@ def main():
         else:
             st.info("没有找到符合筛选条件的数据，请尝试选择其他店铺")
 
+    except requests.exceptions.HTTPError as e:
+        st.error(f"下载文件失败: 请检查URL是否正确 - {str(e)}")
     except Exception as e:
         st.error(f"处理数据时发生错误: {str(e)}")
 
