@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import os
 import requests
 from io import BytesIO
 
@@ -40,26 +39,26 @@ def main():
             st.write(df.columns.tolist())
 
         # 检查是否有必要的列
-        required_columns = ["判断是否到货", "店铺"]
+        required_columns = ["是否到货", "店铺"]
         missing_required = [col for col in required_columns if col not in df.columns]
         if missing_required:
             st.error(f"数据中缺少必要的列：{', '.join(missing_required)}，请检查列名是否正确")
             return
 
         # 筛选出"是否到货=待到货"的数据
-        filtered_df = df[df["判断是否到货"] == "待到货"]
+        filtered_df = df[df["是否到货"] == "待到货"]
 
         # 检查是否有符合条件的数据
         if filtered_df.empty:
-            st.info("没有找到'判断是否到货=待到货'的数据")
+            st.info("没有找到'是否到货=待到货'的数据")
             return
 
         # 获取所有店铺列表并排序
         all_stores = sorted(filtered_df["店铺"].unique())
 
-        # 添加店铺筛选器（支持多选）
-        st.sidebar.subheader("筛选条件")
-        selected_stores = st.sidebar.multiselect(
+        # 将筛选器放在表格上方
+        st.subheader("筛选条件")
+        selected_stores = st.multiselect(
             "选择店铺",
             options=all_stores,
             default=all_stores  # 默认选中所有店铺
@@ -77,14 +76,14 @@ def main():
             "待到货数量", "预计到货时间", "物流单号"
         ]
 
-        # 检查所需的列是否都存在（修复了之前的逻辑错误）
+        # 检查所需的列是否都存在
         missing_columns = [col for col in columns_to_display if col not in filtered_by_store.columns]
         if missing_columns:
             st.warning(f"以下列在数据中未找到，将不会显示：{', '.join(missing_columns)}")
             # 只保留存在的列
             columns_to_display = [col for col in columns_to_display if col in filtered_by_store.columns]
 
-        # 显示筛选后的数据
+        # 显示筛选后的数据，设置use_container_width=True让表格宽度与屏幕一致
         st.subheader(f"待到货数据（共 {len(filtered_by_store)} 条）")
         if not filtered_by_store.empty:
             st.dataframe(filtered_by_store[columns_to_display], use_container_width=True)
