@@ -1000,7 +1000,7 @@ text_lines.append(f"""
 st.markdown("\n".join(text_lines))
 st.divider()
 
-# ===================== 八、二八销售额结构分析（全局TACOS15%管控+修复apply长度报错） =====================
+# ===================== 八、二八销售额结构分析（全局TACOS15%管控+输出广告预算上限） =====================
 st.markdown("## 📈 八、二八销售额结构分析（全SKU分层+店铺全局目标TACOS15%预算测算）")
 # 基础参数
 target_tacos = 0.15
@@ -1063,39 +1063,44 @@ else:
     # 老品销售额总和（用于按销售额权重分摊预算）
     sum_old_sales = df_old["销售额"].sum() if len(df_old) > 0 else 0
 
-    # 3、初始化4个压降空列
-    df_8020_sort["单品压降_销售额不变"] = None
-    df_8020_sort["单品压降_销售额跌5%"] = None
-    df_8020_sort["单品压降_销售额跌10%"] = None
-    df_8020_sort["全局分摊压降额"] = None
+    # 3、初始化4个预算上限空列（替换压降削减列）
+    df_8020_sort["单品预算上限_销售额不变"] = None
+    df_8020_sort["单品预算上限_销售额跌5%"] = None
+    df_8020_sort["单品预算上限_销售额跌10%"] = None
+    df_8020_sort["全局分摊预算上限"] = None
 
-    # 循环逐行计算，彻底规避expand长度报错
+    # 循环逐行计算预算上限，彻底规避expand长度报错
     for idx, row in df_8020_sort.iterrows():
         S = row["销售额"]
         AdSpend = row["广告花费"]
         tag = row["商品流量标签"]
-        # 新品全部置空，不参与压降
+        # 新品全部置空，不限制广告预算、不参与管控
         if "新品" in tag:
             continue
-        # 场景1：单品独立达标15%
-        target_single = S * target_tacos
-        reduce_single_same = AdSpend - target_single if AdSpend > target_single else 0
-        reduce_single_s95 = AdSpend - (S * 0.95 * target_tacos) if AdSpend > (S * 0.95 * target_tacos) else 0
-        reduce_single_s90 = AdSpend - (S * 0.90 * target_tacos) if AdSpend > (S * 0.90 * target_tacos) else 0
 
-        # 场景2：全局分摊压降
+        # ========== 场景1：单品独立达标15%TACOS，计算单品允许最大广告费 ==========
+        target_single_spend_same = S * target_tacos
+        target_single_spend_s95 = (S * 0.95) * target_tacos
+        target_single_spend_s90 = (S * 0.90) * target_tacos
+
+        # 预算不能为负数，最低0
+        budget_same = max(target_single_spend_same, 0)
+        budget_s95 = max(target_single_spend_s95, 0)
+        budget_s90 = max(target_single_spend_s90, 0)
+
+        # ========== 场景2：全局分摊模式，店铺整体锁定15%TACOS ==========
         if sum_old_sales <= 0 or old_max_total_allow <= 0:
-            reduce_global = None
+            budget_global = None
         else:
             weight = S / sum_old_sales
-            single_global_max = old_max_total_allow * weight
-            reduce_global = AdSpend - single_global_max if AdSpend > single_global_max else 0
+            budget_global = old_max_total_allow * weight
+            budget_global = max(budget_global, 0)
 
-        # 赋值回df
-        df_8020_sort.at[idx, "单品压降_销售额不变"] = round(reduce_single_same, 2)
-        df_8020_sort.at[idx, "单品压降_销售额跌5%"] = round(reduce_single_s95, 2)
-        df_8020_sort.at[idx, "单品压降_销售额跌10%"] = round(reduce_single_s90, 2)
-        df_8020_sort.at[idx, "全局分摊压降额"] = round(reduce_global, 2)
+        # 赋值：直接存入广告预算上限（运营直接参考投放红线）
+        df_8020_sort.at[idx, "单品预算上限_销售额不变"] = round(budget_same, 2)
+        df_8020_sort.at[idx, "单品预算上限_销售额跌5%"] = round(budget_s95, 2)
+        df_8020_sort.at[idx, "单品预算上限_销售额跌10%"] = round(budget_s90, 2)
+        df_8020_sort.at[idx, "全局分摊预算上限"] = round(budget_global, 2)
 
     # 统计二八图表数据
     df_head_80 = df_8020_sort[df_8020_sort["累计销售额占比"] <= 0.8]
@@ -1116,8 +1121,12 @@ else:
     head_tacos = head_total_ad_spend / head_total_sales if head_total_sales > 0 else 0
     tail_tacos = tail_total_ad_spend / tail_total_sales if tail_total_sales > 0 else 0
 
-    # 老品整体可削减总额（全局分摊口径）
-    total_old_cut_global = df_8020_sort["全局分摊压降额"].dropna().sum()
+    # 老品整体可削减总额（全局分摊口径，用于指标卡片展示）
+    # 全局可削减总额 = 当前老品总花费 - 老品允许总上限
+    if old_max_total_allow > 0:
+        total_old_cut_global = max(sum_old_ad_spend - old_max_total_allow, 0)
+    else:
+        total_old_cut_global = sum_old_ad_spend
 
     # ---------------------- 1、全局预算指标卡片 ----------------------
     st.subheader("📊 店铺全局TACOS管控核心数据（目标15%）")
@@ -1184,7 +1193,7 @@ else:
         "MSKU","品名","产品类型","SKU层级","商品流量标签",
         "展示","点击","CTR","CPC","CVR",
         "广告花费","广告销售额","销售额","单品ACOS","单品TACOS",
-        "单品压降_销售额不变","单品压降_销售额跌5%","单品压降_销售额跌10%","全局分摊压降额"
+        "单品预算上限_销售额不变","单品预算上限_销售额跌5%","单品预算上限_销售额跌10%","全局分摊预算上限"
     ]
     full_table = df_8020_sort[full_show_cols].copy()
 
@@ -1197,7 +1206,7 @@ else:
 
     # 格式化
     pct_cols = ["CTR","CVR","单品ACOS","单品TACOS"]
-    money_cols = ["CPC","广告花费","广告销售额","销售额","单品压降_销售额不变","单品压降_销售额跌5%","单品压降_销售额跌10%","全局分摊压降额"]
+    money_cols = ["CPC","广告花费","广告销售额","销售额","单品预算上限_销售额不变","单品预算上限_销售额跌5%","单品预算上限_销售额跌10%","全局分摊预算上限"]
     int_cols = ["展示","点击"]
     full_styled = full_table.style\
         .format(formatter="{:.2%}", subset=pct_cols, na_rep="-")\
@@ -1205,7 +1214,7 @@ else:
         .format(formatter="{:.0f}", subset=int_cols, na_rep="-")\
         .apply(color_tacos_series, subset=["单品TACOS"])
     st.dataframe(full_styled, use_container_width=True, height=480)
-    st.caption("压降列说明：单品压降=单品独立做到15%；全局分摊压降=扣除新品刚性预算后，店铺整体达标15%需要削减金额，新品统一显示'-'")
+    st.caption("预算列说明：单品预算上限=单品独立做到15%TACOS的最高投放金额；全局分摊预算上限=店铺整体锁定15%目标后分配的广告上限，运营投放广告请勿超过该数值；新品统一显示'-'不限制")
 
     # ---------------------- 4、综合诊断解读 ----------------------
     st.subheader("🔍 全局TACOS管控投放策略解读")
@@ -1229,13 +1238,13 @@ else:
         analysis.append(f"""
 ### 优化执行方案（可落地）
 1. 老品整体广告投放总额必须控制在 ${old_max_total_allow:,.2f} 以内，才能保证店铺整体TACOS=15%；
-2. 表格【全局分摊压降额】为优先级调整依据，按从大到小顺序削减SKU广告预算；
-3. 三类压降参考：
-   - 单品压降（销量不变）：保守调整，单品自身做到15%；
-   - 全局分摊压降：贴合店铺整体目标，优先按此金额削减；
+2. 表格【全局分摊预算上限】为投放红线，每个老品广告花费不要超过该金额即可，原先花费超上限的SKU逐步下调至限额以内；
+3. 三类预算上限参考：
+   - 单品预算上限（销量不变）：保守调整，单品自身独立做到15%TACOS的最大花费；
+   - 全局分摊预算上限：贴合店铺整体15%目标，作为日常投放控制标准；
 4. 分层调整优先级：
    ① 纯自然出单无广告转化SKU，直接关停广告；
-   ② 长尾高TACOS标红老品，大幅削减预算；
+   ② 长尾高TACOS标红老品，大幅削减预算至预算上限内；
    ③ 重度广告依赖爆款小幅下调，同步布局自然流量；
    ④ TACOS低于15%优质老品可保留甚至适度加预算承接释放流量。
 """)
