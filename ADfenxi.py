@@ -17,7 +17,7 @@ st.title("📊 广告分析看板")
 # -------------------------- 缓存加载原始数据 --------------------------
 @st.cache_data
 def load_raw_data():
-    url = "https://github.com/Jane-zzz-123/streamlit-dashboard/raw/main/ADdata_all.xlsx"
+    url = "https://github.com/Jane-zzz-123/---/raw/main/ADdata_all.xlsx"
     resp = requests.get(url)
     df = pd.read_excel(BytesIO(resp.content), sheet_name="源数据")
 
