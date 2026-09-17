@@ -1015,21 +1015,23 @@ text_lines.append(f"""
 st.markdown("\n".join(text_lines))
 st.divider()
 
-# ===================== 八、二八销售额结构分析（全局+单品双层自定义TACOS模拟） =====================
-st.markdown(f"## 📈 八、二八销售额结构分析（全SKU分层+全局TACOS{GLOBAL_TARGET_TACOS:.0%}，支持单品自定义模拟）")
-
+# ===================== 八、自定义TACOS预算模拟（单页分步版） =====================
+st.markdown("## 📈 八、自定义TACOS预算模拟（基准VS单品调整对比）")
 shop_total_tacos = df_month_single["TACOS广告花费占比"].iloc[0]
 
-# 过滤有效有销售额SKU
+# ---------- 单页步骤状态初始化（全部收在模块内部，无跨文件全局变量） ----------
+if "sim_step" not in st.session_state:
+    st.session_state.sim_step = 1  # 1=全局参数填写页 2=单品自定义+结果页
+if "sim_global_tacos_pct" not in st.session_state:
+    st.session_state.sim_global_tacos_pct = 15.0  # 默认15%
+
+# 加载基础SKU数据（和你原有逻辑完全一致）
 df_8020_raw = df_all_item.dropna(subset=["销售额"]).copy()
 df_8020_raw = df_8020_raw[df_8020_raw["销售额"] > 0]
-
 if df_8020_raw.empty:
-    st.warning("本月所有SKU均无销售额，无法进行二八结构分析")
+    st.warning("本月所有SKU均无销售额，无法进行模拟计算")
 else:
-    # 1、二八分层标记
     df_8020_sort = df_8020_raw.sort_values("销售额", ascending=False).reset_index(drop=True)
-    df_8020_sort["累计销售额"] = df_8020_sort["销售额"].cumsum()
     total_month_sales = df_8020_sort["销售额"].sum()
     df_8020_sort["累计销售额占比"] = df_8020_sort["累计销售额"] / total_month_sales
 
@@ -1037,7 +1039,6 @@ else:
         return "核心SKU(贡献前80%营收)" if row["累计销售额占比"] <= 0.8 else "长尾SKU(剩余20%营收)"
     df_8020_sort["SKU层级"] = df_8020_sort.apply(mark_sku_level, axis=1)
 
-    # 2、商品自动标签
     def get_flow_tag(row):
         sales = row["销售额"]
         ad_sales = row["广告销售额"]
@@ -1054,197 +1055,109 @@ else:
         return "正常老品，参与全局预算压降分配"
     df_8020_sort["商品流量标签"] = df_8020_sort.apply(get_flow_tag, axis=1)
 
-    # ---------------------- 【工具函数】预算计算函数，传入目标tacos，返回计算后的df副本 ----------------------
-    def calc_budget_df(input_df, target_tacos_input):
+    # 预算计算函数（模块内部复用，不改原有规则）
+    def calc_budget(input_df, global_tacos_pct):
         df = input_df.copy()
-        df["_单品预算_销售额不变"] = None
-        df["_单品预算_跌5pct"] = None
-        df["_单品预算_跌10pct"] = None
-        df["_全局分摊预算"] = None
+        df["单品目标TACOS(%)"] = df["单品目标TACOS(%)"].fillna(global_tacos_pct)
+        is_new = df["商品流量标签"].str.contains("新品")
+        sum_new_spend = df[is_new]["广告花费"].sum()
+        old_max_allow = total_month_sales * (global_tacos_pct/100) - sum_new_spend
+        sum_old_sales = df[~is_new]["销售额"].sum()
 
-        df_new_sub = df[df["商品流量标签"].str.contains("新品")]
-        df_old_sub = df[~df["商品流量标签"].str.contains("新品")]
-        sum_new_spend = df_new_sub["广告花费"].sum()
-        total_sales_month = df["销售额"].sum()
-
-        total_max_ad = total_sales_month * target_tacos_input
-        old_max_allow = total_max_ad - sum_new_spend
-        sum_old_sales = df_old_sub["销售额"].sum() if len(df_old_sub) else 0
-
-        for idx, row in df.iterrows():
-            tag = row["商品流量标签"]
+        budget_same = []
+        budget_global = []
+        for _, row in df.iterrows():
             S = row["销售额"]
-            if "新品" in tag:
+            if is_new.loc[_]:
+                budget_same.append(None)
+                budget_global.append(None)
                 continue
-
-            # 如果该行有用户填写的【自定义单品TACOS】就优先使用，否则使用传入的target_tacos_input
-            if pd.notna(row.get("自定义单品目标TACOS(%)")) and float(row["自定义单品目标TACOS(%)"]) > 0:
-                t = float(row["自定义单品目标TACOS(%)"]) / 100
-            else:
-                t = target_tacos_input
-
-            budget_same = max(S * t, 0)
-            budget_s95 = max((S * 0.95) * t, 0)
-            budget_s90 = max((S * 0.90) * t, 0)
-
+            t = row["单品目标TACOS(%)"] / 100
+            budget_same.append(round(S * t, 2))
             if sum_old_sales <=0 or old_max_allow <=0:
-                bg = None
+                budget_global.append(None)
             else:
-                w = S / sum_old_sales
-                bg = max(old_max_allow * w, 0)
+                budget_global.append(round(old_max_allow * (S/sum_old_sales), 2))
+        df["单品预算上限"] = budget_same
+        df["全局分摊预算"] = budget_global
+        return df, old_max_allow, sum_new_spend
 
-            df.at[idx, "_单品预算_销售额不变"] = round(budget_same,2)
-            df.at[idx, "_单品预算_跌5pct"] = round(budget_s95,2)
-            df.at[idx, "_单品预算_跌10pct"] = round(budget_s90,2)
-            df.at[idx, "_全局分摊预算"] = round(bg,2)
-        return df, total_max_ad, old_max_allow, sum_new_spend
+    # ================================== 步骤1：填全局TACOS ==================================
+    if st.session_state.sim_step == 1:
+        st.subheader("第一步：设置店铺全局目标TACOS")
+        st.session_state.sim_global_tacos_pct = st.number_input(
+            "全局目标TACOS(%)", min_value=0.0, max_value=50.0,
+            value=st.session_state.sim_global_tacos_pct, step=0.5,
+            help="默认15%，后续单品自定义会覆盖这个值"
+        )
+        col_next, col_reset = st.columns([1,3])
+        with col_next:
+            if st.button("✅ 确认参数，进入单品自定义步骤", type="primary"):
+                # 初始化单品目标列：默认填全局值，新品不参与
+                df_8020_sort["单品目标TACOS(%)"] = st.session_state.sim_global_tacos_pct
+                df_8020_sort.loc[df_8020_sort["商品流量标签"].str.contains("新品"), "单品目标TACOS(%)"] = None
+                st.session_state.sim_step = 2
+                st.rerun()
 
-    # 先增加编辑列：自定义单品目标TACOS(%)，初始为空
-    df_8020_sort["自定义单品目标TACOS(%)"] = None
-
-    st.subheader("✏️模拟参数编辑表格：可填写单品自定义目标TACOS，留空继承全局TACOS")
-    st.info("提示：新品行不可编辑；老品填写例如18，即代表该SKU目标TACOS=18%；编辑完表格自动计算两套结果对比")
-
-    # 使用data_editor，锁定新品行不能编辑自定义TACOS字段
-    df_editable = st.data_editor(
-        df_8020_sort,
-        column_config={
-            "自定义单品目标TACOS(%)": st.column_config.NumberColumn(
-                min_value=0.0, max_value=50.0, step=0.5,
-                help="仅老品生效，留空使用店铺全局目标TACOS"
-            )
-        },
-        disabled=df_8020_sort["商品流量标签"].str.contains("新品").tolist(),
-        use_container_width=True,
-        height=350
-    )
-
-    # -------- 两套计算：基准（全部使用全局TACOS） / 模拟（优先读取用户填写的单品TACOS）
-    df_base, base_total_max_ad, base_old_max_allow, sum_new_ad_spend = calc_budget_df(df_editable, GLOBAL_TARGET_TACOS)
-    df_sim, sim_total_max_ad, sim_old_max_allow, _ = calc_budget_df(df_editable, GLOBAL_TARGET_TACOS)
-
-    # 合并两套结果 + 计算差值
-    df_merge = df_sim.copy()
-    df_merge["base_单品预算_销售额不变"] = df_base["_单品预算_销售额不变"]
-    df_merge["base_全局分摊预算"] = df_base["_全局分摊预算"]
-
-    df_merge["delta_全局分摊预算"] = df_merge["_全局分摊预算"] - df_merge["base_全局分摊预算"]
-
-    # 统计二八图表数据（和原有逻辑不变）
-    df_head_80 = df_merge[df_merge["累计销售额占比"] <= 0.8]
-    df_tail_20 = df_merge[df_merge["累计销售额占比"] > 0.8]
-    total_sku_count = len(df_merge)
-    head_sku_count = len(df_head_80)
-    head_sku_pct = head_sku_count / total_sku_count if total_sku_count > 0 else 0
-
-    # ---------------------- 1、全局预算指标卡片：同时展示【基准】&【模拟】两套汇总
-    st.subheader(f"📊 店铺全局TACOS管控核心数据｜基准VS模拟")
-    kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)
-    with kpi1:
-        st.metric("全店总销售额", f"${total_month_sales:,.2f}")
-    with kpi2:
-        st.metric("基准-全店广告上限", f"${base_total_max_ad:,.2f}")
-    with kpi3:
-        st.metric("模拟-全店广告上限", f"${sim_total_max_ad:,.2f}", delta=f"{sim_total_max_ad-base_total_max_ad:,.2f}")
-    with kpi4:
-        st.metric("新品刚性广告费", f"${sum_new_ad_spend:,.2f}")
-    with kpi5:
-        st.metric("基准-老品允许总额", f"${base_old_max_allow:,.2f}")
-    with kpi6:
-        st.metric("模拟-老品允许总额", f"${sim_old_max_allow:,.2f}", delta=f"{sim_old_max_allow-base_old_max_allow:,.2f}")
-
-    if sim_old_max_allow < 0:
-        st.error(f"⚠️模拟场景预警：新品广告花费已超过模拟目标允许总广告预算！")
+    # ================================== 步骤2：单品自定义+结果对比 ==================================
     else:
-        st.success(f"✅模拟场景老品可投放上限：${sim_old_max_allow:,.2f}")
+        global_t = st.session_state.sim_global_tacos_pct
+        st.info(f"当前全局目标TACOS：{global_t}%；新品行不可编辑，留空的SKU自动沿用全局TACOS")
+        col_back, col_tip = st.columns([2,3])
+        with col_back:
+            if st.button("← 返回修改全局参数"):
+                st.session_state.sim_step = 1
+                st.rerun()
 
-    # ---------------------- 2、二八趋势图表（保持原样）
-    chart_80_left, chart_80_right = st.columns([1.2, 1])
-    with chart_80_left:
-        fig_cum_sales = go.Figure()
-        fig_cum_sales.add_trace(go.Scatter(
-            x=list(range(1, len(df_merge)+1)),
-            y=df_merge["累计销售额占比"],
-            mode="lines+markers",
-            line=dict(color="#1f77b4", width=3),
-            name="销售额累计占比",
-            hovertemplate="SKU排名：%{x}<br>累计占比：%{y:.2%}<br>层级：%{customdata[0]}<br>标签：%{customdata[1]}<extra></extra>",
-            customdata=df_merge[["SKU层级","商品流量标签"]].values
-        ))
-        fig_cum_sales.add_hline(y=0.8, line_dash="dash", line_color="red", annotation_text="80%营收分界线")
-        fig_cum_sales.update_layout(title="SKU销售额累计占比曲线", xaxis_title="SKU排名", yaxis_tickformat=".1%", height=400)
-        st.plotly_chart(fig_cum_sales, use_container_width=True)
-    with chart_80_right:
-        fig_head_tail_spend = go.Figure()
-        fig_head_tail_spend.add_trace(go.Bar(
-            x=["核心SKU","长尾SKU"],
-            y=[df_head_80["广告花费"].sum(), df_tail_20["广告花费"].sum()],
-            marker_color=["#2ca02c", "#d62728"]
-        ))
-        fig_head_tail_spend.update_layout(title="核心/长尾广告花费对比", yaxis_title="广告花费($)", height=400)
-        st.plotly_chart(fig_head_tail_spend, use_container_width=True)
+        # 初始化编辑列
+        if "单品目标TACOS(%)" not in df_8020_sort.columns:
+            df_8020_sort["单品目标TACOS(%)"] = global_t
+            df_8020_sort.loc[df_8020_sort["商品流量标签"].str.contains("新品"), "单品目标TACOS(%)"] = None
 
-    # ---------------------- 3、对比明细表格：基准值｜模拟值｜变动差值
-    st.subheader(f"🏆 SKU预算对比明细表（基准测算 VS 自定义模拟测算）")
-    full_show_cols = [
-        "MSKU","品名","产品类型","SKU层级","商品流量标签","自定义单品目标TACOS(%)",
-        "展示","点击","CTR","CPC","CVR",
-        "广告花费","广告销售额","销售额","单品ACOS","单品TACOS",
-        "base_全局分摊预算","_全局分摊预算","delta_全局分摊预算"
-    ]
-    full_table = df_merge[full_show_cols].copy()
+        # 可编辑表格
+        edit_cols = ["MSKU","品名","产品类型","商品流量标签","销售额","广告花费","单品目标TACOS(%)"]
+        df_edit = st.data_editor(
+            df_8020_sort[edit_cols],
+            column_config={
+                "单品目标TACOS(%)": st.column_config.NumberColumn(
+                    min_value=0.0, max_value=50.0, step=0.5,
+                    help="老品可填自定义值，留空沿用全局TACOS"
+                )
+            },
+            disabled=df_8020_sort["商品流量标签"].str.contains("新品").tolist(),
+            use_container_width=True, height=350
+        )
 
-    def color_tacos_series(s):
-        return [
-            "background-color: #ffcccc; color: #c41e3a; font-weight:bold"
-            if val > shop_total_tacos else "" for val in s
-        ]
-    pct_cols = ["CTR","CVR","单品ACOS","单品TACOS"]
-    money_cols = ["CPC","广告花费","广告销售额","销售额","base_全局分摊预算","_全局分摊预算","delta_全局分摊预算"]
-    int_cols = ["展示","点击"]
+        # 同时计算基准（全部用全局TACOS）和模拟（用编辑后的单品值）
+        df_base, base_old_allow, sum_new_spend = calc_budget(df_8020_sort, global_t)
+        df_sim, sim_old_allow, _ = calc_budget(df_edit, global_t)
 
-    full_styled = full_table.style\
-        .format(formatter="{:.2%}", subset=pct_cols, na_rep="-")\
-        .format(formatter="{:.2f}", subset=money_cols, na_rep="-")\
-        .format(formatter="{:.0f}", subset=int_cols, na_rep="-")\
-        .apply(color_tacos_series, subset=["单品TACOS"])
+        # 合并对比
+        df_compare = df_edit.copy()
+        df_compare["基准_全局分摊预算"] = df_base["全局分摊预算"]
+        df_compare["模拟_全局分摊预算"] = df_sim["全局分摊预算"]
+        df_compare["预算变动差额"] = df_compare["模拟_全局分摊预算"] - df_compare["基准_全局分摊预算"]
 
-    st.dataframe(full_styled, use_container_width=True, height=480)
-    st.caption(
-        "base_全局分摊预算：全部使用全局TACOS的基准结果；"
-        "_全局分摊预算：填写单品自定义TACOS后的模拟结果；"
-        "delta_全局分摊预算：模拟-基准，正数预算增加，负数预算削减；新品全部显示'-'"
-    )
+        # 汇总指标卡片
+        k1,k2,k3,k4 = st.columns(4)
+        with k1:
+            st.metric("全局TACOS目标", f"{global_t}%")
+        with k2:
+            st.metric("基准老品总预算上限", f"${base_old_allow:,.2f}")
+        with k3:
+            st.metric("模拟老品总预算上限", f"${sim_old_allow:,.2f}", delta=f"{sim_old_allow-base_old_allow:,.2f}")
+        with k4:
+            st.metric("新品刚性广告费", f"${sum_new_spend:,.2f}")
 
-    # ----------------------4、综合解读
-    st.subheader("🔍 TACOS管控投放策略解读")
-    analysis = []
-    if head_sku_pct <= 0.2:
-        analysis.append(f"✅ 二八健康：仅{head_sku_pct:.1%}SKU贡献80%营收，爆款集中")
-    else:
-        analysis.append(f"⚠️ 营收分散：需要{head_sku_pct:.1%}SKU才能覆盖80%销售额，缺少头部爆款")
-
-    analysis.append(f"- 店铺全局目标TACOS：{GLOBAL_TARGET_TACOS:.0%}；店铺实际当前TACOS：{shop_total_tacos:.2%}")
-    analysis.append(f"- 新品广告费${sum_new_ad_spend:,.2f}为刚性支出，不参与压降，直接占用总预算额度")
-    analysis.append(f"- 基准方案老品允许总预算：${base_old_max_allow:,.2f}；自定义模拟方案老品允许总预算：${sim_old_max_allow:,.2f}，变动 {sim_old_max_allow-base_old_max_allow:,.2f}")
-
-    if sim_old_max_allow < 0:
-        analysis.append("""
-### 模拟场景风险：新品投放透支全部广告预算
-1. 当前模拟条件下新品广告花费已经超过全店允许广告总额，即使关停老品广告也无法达成目标TACOS；
-2. 方案：降低新品广告投放力度 / 提高销售额放大分母稀释TACOS。
-""")
-    else:
-        analysis.append(f"""
-### 模拟方案执行说明
-1. 表格`_全局分摊预算`为自定义参数后的模拟投放红线；delta列为相对于基准方案预算增减；
-2. SKU【自定义单品目标TACOS】为空，则自动继承店铺全局TACOS；新品不参与模拟压降；
-3. 调整优先级：纯自然无转化SKU优先关停；长尾高TACOSSKU削减预算；重度广告依赖SKU谨慎调降。
-""")
-    analysis.append("### 新品特殊说明")
-    analysis.append("新品推广期允许TACOS高于目标，作为短期投放成本；开售满60天稳定出单后纳入管控。")
-    st.markdown("\n".join(analysis))
+        # 对比明细表
+        st.subheader("📊 预算对比结果（基准方案 VS 单品调整方案）")
+        show_cols = ["MSKU","品名","商品流量标签","单品目标TACOS(%)","销售额","广告花费",
+                     "基准_全局分摊预算","模拟_全局分摊预算","预算变动差额"]
+        st.dataframe(df_compare[show_cols].sort_values("销售额", ascending=False),
+                     use_container_width=True, height=400)
+        st.caption("差额为正=该SKU调整后预算增加；差额为负=该SKU可削减预算；新品行全部显示'-'")
 
 st.divider()
+
 
 
