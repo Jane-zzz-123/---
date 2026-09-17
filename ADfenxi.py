@@ -1033,6 +1033,9 @@ if df_8020_raw.empty:
 else:
     df_8020_sort = df_8020_raw.sort_values("销售额", ascending=False).reset_index(drop=True)
     total_month_sales = df_8020_sort["销售额"].sum()
+
+    # ==========修复BUG：先生成累计销售额列，再计算占比==========
+    df_8020_sort["累计销售额"] = df_8020_sort["销售额"].cumsum()
     df_8020_sort["累计销售额占比"] = df_8020_sort["累计销售额"] / total_month_sales
 
     def mark_sku_level(row):
@@ -1066,9 +1069,9 @@ else:
 
         budget_same = []
         budget_global = []
-        for _, row in df.iterrows():
+        for idx, row in df.iterrows():
             S = row["销售额"]
-            if is_new.loc[_]:
+            if is_new.loc[idx]:
                 budget_same.append(None)
                 budget_global.append(None)
                 continue
@@ -1158,6 +1161,7 @@ else:
         st.caption("差额为正=该SKU调整后预算增加；差额为负=该SKU可削减预算；新品行全部显示'-'")
 
 st.divider()
+
 
 
 
