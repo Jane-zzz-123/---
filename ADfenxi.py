@@ -1231,6 +1231,23 @@ else:
             try:
                 payload = json.loads(json_input.strip())
                 df_res = pd.DataFrame(payload["rows"])
+
+                # ========= Python侧计算衍生列（新增，解决KeyError核心） =========
+                df_res["base_spend"] = df_res["baseSpend"]
+                df_res["base_tacos"] = df_res["baseTacos"]
+                df_res["edit_tacos"] = df_res["editTacos"]
+
+                # 计算修改后广告花费
+                def calc_edit_spend(row):
+                    if "新品" in str(row["商品流量标签"]):
+                        return row["base_spend"]
+                    sales = float(row["销售额"])
+                    et = float(row["edit_tacos"])
+                    return sales * et / 100
+                df_res["edit_spend"] = df_res.apply(calc_edit_spend, axis=1)
+                # 花费差值 = 修改 - 基准
+                df_res["diff_spend"] = df_res["edit_spend"] - df_res["base_spend"]
+
                 st.session_state.sim_df_result = df_res
                 st.session_state.sim_summary = {
                     "global_t": payload["global_t"],
@@ -1257,6 +1274,8 @@ else:
             base_old_budget = base_total_budget - sum_new_ad
 
             # ========== 计算模拟后汇总指标 ==========
+            # 空值兜底，防止str.contains报错
+            df_res["商品流量标签"] = df_res["商品流量标签"].fillna("")
             sum_edit_old_spend = df_res[~df_res["商品流量标签"].str.contains("新品")]["edit_spend"].sum()
             sim_total_budget = sum_edit_old_spend + sum_new_ad
             sim_global_tacos = sim_total_budget / total_sales * 100 if total_sales > 0 else 0
@@ -1290,7 +1309,7 @@ else:
                 st.metric("老品预算广告花费", f"${sum_edit_old_spend:,.2f}",
                           delta=f"{sum_edit_old_spend - base_old_budget:.2f}")
 
-            # ========== 下面原表格代码不动 ==========
+            # ========== 下面表格代码 ==========
             df_show = st.session_state.sim_df_result.copy()
 
             # ========== 按上方HTML列顺序重命名+排列 ==========
@@ -1321,7 +1340,6 @@ else:
             for col in ["当前实际TACOS(%)", "单品目标TACOS(%)【基准只读】", "修改的TACOS(%)【可编辑】"]:
                 df_show[col] = df_show[col].apply(lambda x: round(float(x), 2) if pd.notna(x) else "-")
 
-
             # ========== 条件格式：差值>1标红，<-1标绿 ==========
             def color_diff(s):
                 colors = []
@@ -1336,11 +1354,10 @@ else:
                         colors.append("")
                 return colors
 
-
             styled_df = df_show.style.apply(color_diff, subset=["花费差值(修改-基准)【多花为正】"])
 
             st.dataframe(styled_df, use_container_width=True, height=450)
-
 st.divider()
+
 
 
