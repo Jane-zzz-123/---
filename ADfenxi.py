@@ -1260,106 +1260,132 @@ else:
 
         # 解析结果，放在HTML表格下方，上下共存
         # 解析结果展示：列顺序、名称和上方HTML完全一一对应
-        if st.session_state.sim_df_result is not None:
-            st.divider()
-            st.subheader("📊 本次TACOS模拟回传结果")
-            sm = st.session_state.sim_summary
-            df_res = st.session_state.sim_df_result
+                if st.session_state.sim_df_result is not None:
+                    st.divider()
+                    st.subheader("📊 本次TACOS模拟回传结果")
+                    sm = st.session_state.sim_summary
+                    df_res = st.session_state.sim_df_result.copy()
 
-            # ========== 计算基准汇总指标 ==========
-            total_sales = sm["total_sales"]
-            sum_new_ad = sm["sum_new_ad"]
-            base_global_t = sm["global_t"]
-            base_total_budget = total_sales * base_global_t / 100
-            base_old_budget = base_total_budget - sum_new_ad
+                    # ========== 计算基准汇总指标 ==========
+                    total_sales = sm["total_sales"]
+                    sum_new_ad = sm["sum_new_ad"]
+                    base_global_t = sm["global_t"]
+                    base_total_budget = total_sales * base_global_t / 100
+                    base_old_budget = base_total_budget - sum_new_ad
 
-            # ========== 【重点修改！！不再用商品流量标签筛选，改用edit_tacos为空判断新品】 ==========
-            # edit_tacos为空 = 新品
-            df_res["is_new_flag"] = df_res["edit_tacos"].isna()
-            sum_edit_old_spend = df_res[~df_res["is_new_flag"]]["edit_spend"].sum()
+                    # ========== 【重点修改！！不再用商品流量标签筛选，改用edit_tacos为空判断新品】 ==========
+                    # edit_tacos为空 = 新品
+                    df_res["is_new_flag"] = df_res["edit_tacos"].isna()
+                    sum_edit_old_spend = df_res[~df_res["is_new_flag"]]["edit_spend"].sum()
 
-            sim_total_budget = sum_edit_old_spend + sum_new_ad
-            sim_global_tacos = sim_total_budget / total_sales * 100 if total_sales > 0 else 0
+                    sim_total_budget = sum_edit_old_spend + sum_new_ad
+                    sim_global_tacos = sim_total_budget / total_sales * 100 if total_sales > 0 else 0
+
+                    # 构建2行5列布局
+                    st.markdown("##### 基准参数")
+                    bc1, bc2, bc3, bc4, bc5 = st.columns(5)
+                    with bc1:
+                        st.metric("全局目标TACOS", f"{base_global_t}%")
+                    with bc2:
+                        st.metric("全店总销售额", f"${total_sales:,.2f}")
+                    with bc3:
+                        st.metric("全店总预算广告花费", f"${base_total_budget:,.2f}")
+                    with bc4:
+                        st.metric("新品刚性广告费", f"${sum_new_ad:,.2f}")
+                    with bc5:
+                        st.metric("老品预算广告花费", f"${base_old_budget:,.2f}")
+
+                    st.markdown("##### 模拟后参数")
+                    sc1, sc2, sc3, sc4, sc5 = st.columns(5)
+                    with sc1:
+                        st.metric("全局目标TACOS", f"{sim_global_tacos:.2f}%")
+                    with sc2:
+                        st.metric("全店总销售额", f"${total_sales:,.2f}")
+                    with sc3:
+                        st.metric("全店总预算广告花费", f"${sim_total_budget:,.2f}",
+                                  delta=f"{sim_total_budget - base_total_budget:.2f}")
+                    with sc4:
+                        st.metric("新品刚性广告费", f"${sum_new_ad:,.2f}")
+                    with sc5:
+                        st.metric("老品预算广告花费", f"${sum_edit_old_spend:,.2f}",
+                                  delta=f"{sum_edit_old_spend - base_old_budget:.2f}")
+
+                    # ========== 下面表格代码 ==========
+                    df_show = st.session_state.sim_df_result.copy()
+
+                    # ========== 按上方HTML列顺序重命名+排列 ==========
+                    df_show = df_show.rename(columns={
+                        "单品当前TACOS": "当前实际TACOS(%)",
+                        "base_tacos": "单品目标TACOS(%)【基准只读】",
+                        "base_spend": "单品目标TACOS广告花费【基准只读】",
+                        "edit_tacos": "修改的TACOS(%)【可编辑】",
+                        "edit_spend": "修改TACOS的广告花费",
+                        "diff_spend": "花费差值(修改-基准)【多花为正】",
+                        "广告花费": "当前实际广告花费"
+                    })
+
+                    show_cols = [
+                        "MSKU", "品名", "产品类型", "商品流量标签",
+                        "销售额", "当前实际TACOS(%)", "当前实际广告花费",
+                        "单品目标TACOS(%)【基准只读】", "单品目标TACOS广告花费【基准只读】",
+                        "修改的TACOS(%)【可编辑】", "修改TACOS的广告花费",
+                        "花费差值(修改-基准)【多花为正】"
+                    ]
+                    # 容错：自动过滤不存在的列，防止列缺失报错
+                    show_cols = [c for c in show_cols if c in df_show.columns]
+                    df_show = df_show[show_cols].sort_values("销售额", ascending=False)
+
+                    # ========== 数值格式化：所有金额、TACOS统一保留两位小数 ==========
+                    # 金额类列
+                    money_cols = [
+                        "销售额", "当前实际广告花费",
+                        "单品目标TACOS广告花费【基准只读】",
+                        "修改TACOS的广告花费",
+                        "花费差值(修改-基准)【多花为正】"
+                    ]
+                    for col in money_cols:
+                        if col in df_show.columns:
+                            df_show[col] = df_show[col].apply(
+                                lambda x: round(float(x), 2) if pd.notna(x) else "-"
+                            )
+
+                    # 百分比类列（TACOS）
+                    pct_cols = [
+                        "当前实际TACOS(%)",
+                        "单品目标TACOS(%)【基准只读】",
+                        "修改的TACOS(%)【可编辑】"
+                    ]
+                    for col in pct_cols:
+                        if col in df_show.columns:
+                            df_show[col] = df_show[col].apply(
+                                lambda x: round(float(x), 2) if pd.notna(x) else "-"
+                            )
 
 
-            # 构建2行5列布局
-            st.markdown("##### 基准参数")
-            bc1, bc2, bc3, bc4, bc5 = st.columns(5)
-            with bc1:
-                st.metric("全局目标TACOS", f"{base_global_t}%")
-            with bc2:
-                st.metric("全店总销售额", f"${total_sales:,.2f}")
-            with bc3:
-                st.metric("全店总预算广告花费", f"${base_total_budget:,.2f}")
-            with bc4:
-                st.metric("新品刚性广告费", f"${sum_new_ad:,.2f}")
-            with bc5:
-                st.metric("老品预算广告花费", f"${base_old_budget:,.2f}")
+                    # ========== 条件格式：差值>1标红，<-1标绿 ==========
+                    def color_diff(s):
+                        colors = []
+                        for v in s:
+                            if v == "-" or pd.isna(v):
+                                colors.append("")
+                            elif float(v) > 1:
+                                colors.append("background-color: #ffcccc; color: #c41e3a; font-weight:bold")
+                            elif float(v) < -1:
+                                colors.append("background-color: #d4edda; color: #00875a; font-weight:bold")
+                            else:
+                                colors.append("")
+                        return colors
 
-            st.markdown("##### 模拟后参数")
-            sc1, sc2, sc3, sc4, sc5 = st.columns(5)
-            with sc1:
-                st.metric("全局目标TACOS", f"{sim_global_tacos:.2f}%")
-            with sc2:
-                st.metric("全店总销售额", f"${total_sales:,.2f}")
-            with sc3:
-                st.metric("全店总预算广告花费", f"${sim_total_budget:,.2f}",
-                          delta=f"{sim_total_budget - base_total_budget:.2f}")
-            with sc4:
-                st.metric("新品刚性广告费", f"${sum_new_ad:,.2f}")
-            with sc5:
-                st.metric("老品预算广告花费", f"${sum_edit_old_spend:,.2f}",
-                          delta=f"{sum_edit_old_spend - base_old_budget:.2f}")
 
-            # ========== 下面表格代码 ==========
-            df_show = st.session_state.sim_df_result.copy()
-
-            # ========== 按上方HTML列顺序重命名+排列 ==========
-            df_show = df_show.rename(columns={
-                "单品当前TACOS": "当前实际TACOS(%)",
-                "base_tacos": "单品目标TACOS(%)【基准只读】",
-                "base_spend": "单品目标TACOS广告花费【基准只读】",
-                "edit_tacos": "修改的TACOS(%)【可编辑】",
-                "edit_spend": "修改TACOS的广告花费",
-                "diff_spend": "花费差值(修改-基准)【多花为正】",
-                "广告花费": "当前实际广告花费"
-            })
-
-            show_cols = [
-                "MSKU", "品名", "产品类型", "商品流量标签",
-                "销售额", "当前实际TACOS(%)", "当前实际广告花费",
-                "单品目标TACOS(%)【基准只读】", "单品目标TACOS广告花费【基准只读】",
-                "修改的TACOS(%)【可编辑】", "修改TACOS的广告花费",
-                "花费差值(修改-基准)【多花为正】"
-            ]
-            df_show = df_show[show_cols].sort_values("销售额", ascending=False)
-
-            # ========== 数值格式化：TACOS保留2位小数，金额保留2位小数 ==========
-            for col in ["销售额", "当前实际广告花费", "单品目标TACOS广告花费【基准只读】",
-                        "修改TACOS的广告花费", "花费差值(修改-基准)【多花为正】"]:
-                df_show[col] = df_show[col].apply(lambda x: round(float(x), 2) if pd.notna(x) else "-")
-
-            for col in ["当前实际TACOS(%)", "单品目标TACOS(%)【基准只读】", "修改的TACOS(%)【可编辑】"]:
-                df_show[col] = df_show[col].apply(lambda x: round(float(x), 2) if pd.notna(x) else "-")
-
-            # ========== 条件格式：差值>1标红，<-1标绿 ==========
-            def color_diff(s):
-                colors = []
-                for v in s:
-                    if v == "-" or pd.isna(v):
-                        colors.append("")
-                    elif float(v) > 1:
-                        colors.append("background-color: #ffcccc; color: #c41e3a; font-weight:bold")
-                    elif float(v) < -1:
-                        colors.append("background-color: #d4edda; color: #00875a; font-weight:bold")
+                    # 只在列存在时才应用样式，防止报错
+                    if "花费差值(修改-基准)【多花为正】" in df_show.columns:
+                        styled_df = df_show.style.apply(color_diff, subset=["花费差值(修改-基准)【多花为正】"])
                     else:
-                        colors.append("")
-                return colors
+                        styled_df = df_show.style
 
-            styled_df = df_show.style.apply(color_diff, subset=["花费差值(修改-基准)【多花为正】"])
+                    st.dataframe(styled_df, use_container_width=True, height=450)
+        st.divider()
 
-            st.dataframe(styled_df, use_container_width=True, height=450)
-st.divider()
 
 
 
