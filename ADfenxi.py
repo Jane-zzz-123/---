@@ -1108,7 +1108,7 @@ else:
 <th>单品目标TACOS广告花费<br/>【基准只读】</th>
 <th>修改的TACOS(%)<br/>【可编辑】</th>
 <th>修改TACOS的广告花费</th>
-<th>花费差值(基准-修改)</th>
+<th>花费差值(修改-基准)<br/>【多花为正】</th>
 </tr>
 </thead>
 <tbody id="tb"></tbody>
@@ -1167,13 +1167,14 @@ function recalc(){
     }else{
         editTacos = Number(row.editTacos);
         editSpend = sales * editTacos / 100;
-        diff = baseSpend - editSpend;
+        // 修改差值逻辑：修改花费 - 基准花费
+        diff = editSpend - baseSpend;
         sumEditTotal += editSpend;
         sumBaseOld += baseSpend;
     }
     let diffColor = "#000000";
-    if(diff > 1) diffColor = "#c41e3a";
-    if(diff < -1) diffColor = "#00875a";
+    if(diff > 1) diffColor = "#c41e3a";   // 多花，红色
+    if(diff < -1) diffColor = "#00875a"; // 少花，绿色
     tr.innerHTML = `
 <td>${row.MSKU||""}</td>
 <td>${(row.品名||"").replace(/[<>]/g,"")}</td>
