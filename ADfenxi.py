@@ -1015,7 +1015,7 @@ text_lines.append(f"""
 st.markdown("\n".join(text_lines))
 st.divider()
 
-# ===================== 八、自定义TACOS预算模拟 =====================
+# ===================== 八、自定义TACOS预算模拟（HTML前端实时计算，修改单元格不刷新） =====================
 st.markdown("## 📈 八、自定义TACOS预算模拟")
 shop_total_tacos = df_month_single["TACOS广告花费占比"].iloc[0]
 
@@ -1035,7 +1035,6 @@ if df_8020_raw.empty:
     st.warning("本月无有效销售额SKU，无法计算")
 else:
     df_8020_sort = df_8020_raw.sort_values("销售额", ascending=False).reset_index(drop=True)
-    total_month_sales = df_8020_sort["销售额"]
 
     def get_flow_tag(row):
         sales = row["销售额"]
@@ -1116,8 +1115,8 @@ else:
 </table>
 </div>
 <br/>
-<button onclick="saveData()" style="background:#165DFF;color:white;padding:6px 14px;border-radius:4px;border:none;">✅ 一键回传结果到看板</button>
-<div id="tip" style="color:#00875a;display:none;margin:8px 0;">✅ 已自动回传，下方加载结果！</div>
+<button onclick="saveData()" style="background:#165DFF;color:white;padding:6px 14px;border-radius:4px;border:none;">✅ 回传结果到看板（一键复制JSON）</button>
+<div id="tip" style="color:#00875a;display:none;margin:8px 0;">✅JSON已复制到剪贴板！粘贴到下方输入框，点击解析按钮即可</div>
 </div>
 <script>
 const rows = JSON.parse(`__ROWS__`);
@@ -1209,16 +1208,7 @@ async function saveData(){
     sum_new_ad: sumNewAd,
     rows: rows
   });
-  // 找到streamlit的文本框，填入JSON
-  const textarea = window.parent.document.querySelector('textarea[aria-label="粘贴回传JSON"]');
-  if(textarea){
-    textarea.value = payload;
-    // 触发文本变更事件
-    textarea.dispatchEvent(new Event('input', {bubbles:true}));
-    // 找到解析按钮，自动点击
-    const parseBtn = window.parent.document.querySelector('button:contains("解析回传结果")');
-    if(parseBtn) parseBtn.click();
-  }
+  await navigator.clipboard.writeText(payload);
   document.getElementById("tip").style.display="block";
   setTimeout(()=>{document.getElementById("tip").style.display="none"},3000)
 }
@@ -1229,8 +1219,8 @@ recalc();
         html_code = html_code.replace("__ROWS__", json_rows)
         st.components.v1.html(html_code, height=600, scrolling=True)
 
-        st.info("👉调整完单品TACOS，直接点击上方【一键回传结果到看板】，无需复制粘贴！")
-        json_input = st.text_area("粘贴回传JSON", height=120, label_visibility="visible")
+        st.info("👉调整完单品TACOS，点击【回传结果到看板（一键复制JSON）】，复制完成后粘贴到下方输入框，再点【解析回传结果】")
+        json_input = st.text_area("粘贴回传JSON", height=120)
         parse_btn = st.button("📥 解析回传结果", type="primary")
         if parse_btn:
             try:
@@ -1242,10 +1232,11 @@ recalc();
                     "total_sales": payload["total_sales"],
                     "sum_new_ad": payload["sum_new_ad"]
                 }
-                st.success("✅解析成功，下方展示模拟结果，上方表格可继续修改！")
+                st.success("✅解析成功！上方编辑表格保留，下方展示模拟结果，可继续修改TACOS重新测算")
             except Exception as e:
                 st.error(f"解析失败：{e}")
 
+        # 解析结果，放在HTML表格下方，上下共存
         if st.session_state.sim_df_result is not None:
             st.divider()
             st.subheader("📊 本次TACOS模拟回传结果")
@@ -1260,4 +1251,5 @@ recalc();
             st.dataframe(st.session_state.sim_df_result, use_container_width=True)
 
 st.divider()
+
 
