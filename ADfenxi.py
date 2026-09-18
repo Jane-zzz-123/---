@@ -1015,26 +1015,29 @@ text_lines.append(f"""
 st.markdown("\n".join(text_lines))
 st.divider()
 
-# ===================== 八、自定义TACOS预算模拟（单页分步版） =====================
+# ===================== 八、自定义TACOS预算模拟｜编辑与计算分离，点击按钮才计算 =====================
 st.markdown("## 📈 八、自定义TACOS预算模拟（基准VS单品调整对比）")
 shop_total_tacos = df_month_single["TACOS广告花费占比"].iloc[0]
 
-# ---------- 单页步骤状态初始化（全部收在模块内部，无跨文件全局变量） ----------
-if "sim_step" not in st.session_state:
-    st.session_state.sim_step = 1  # 1=全局参数填写页 2=单品自定义+结果页
+# ---------- session状态初始化 ----------
 if "sim_global_tacos_pct" not in st.session_state:
-    st.session_state.sim_global_tacos_pct = 15.0  # 默认15%
+    st.session_state.sim_global_tacos_pct = 15.0
+if "sim_df_result" not in st.session_state:
+    st.session_state.sim_df_result = None
+if "sim_summary" not in st.session_state:
+    st.session_state.sim_summary = None
 
-# 加载基础SKU数据（和你原有逻辑完全一致）
+
+# 加载基础SKU数据（原有业务逻辑完全保留）
 df_8020_raw = df_all_item.dropna(subset=["销售额"]).copy()
 df_8020_raw = df_8020_raw[df_8020_raw["销售额"] > 0]
+
 if df_8020_raw.empty:
     st.warning("本月所有SKU均无销售额，无法进行模拟计算")
 else:
     df_8020_sort = df_8020_raw.sort_values("销售额", ascending=False).reset_index(drop=True)
     total_month_sales = df_8020_sort["销售额"].sum()
 
-    # ==========修复BUG：先生成累计销售额列，再计算占比==========
     df_8020_sort["累计销售额"] = df_8020_sort["销售额"].cumsum()
     df_8020_sort["累计销售额占比"] = df_8020_sort["累计销售额"] / total_month_sales
 
@@ -1058,7 +1061,8 @@ else:
         return "正常老品，参与全局预算压降分配"
     df_8020_sort["商品流量标签"] = df_8020_sort.apply(get_flow_tag, axis=1)
 
-    # 预算计算函数（模块内部复用，不改原有规则）
+
+    # 预算计算函数
     def calc_budget(input_df, global_tacos_pct):
         df = input_df.copy()
         df["单品目标TACOS(%)"] = df["单品目标TACOS(%)"].fillna(global_tacos_pct)
@@ -1085,82 +1089,99 @@ else:
         df["全局分摊预算"] = budget_global
         return df, old_max_allow, sum_new_spend
 
-    # ================================== 步骤1：填全局TACOS ==================================
-    if st.session_state.sim_step == 1:
-        st.subheader("第一步：设置店铺全局目标TACOS")
-        st.session_state.sim_global_tacos_pct = st.number_input(
-            "全局目标TACOS(%)", min_value=0.0, max_value=50.0,
-            value=st.session_state.sim_global_tacos_pct, step=0.5,
-            help="默认15%，后续单品自定义会覆盖这个值"
-        )
-        col_next, col_reset = st.columns([1,3])
-        with col_next:
-            if st.button("✅ 确认参数，进入单品自定义步骤", type="primary"):
-                # 初始化单品目标列：默认填全局值，新品不参与
-                df_8020_sort["单品目标TACOS(%)"] = st.session_state.sim_global_tacos_pct
-                df_8020_sort.loc[df_8020_sort["商品流量标签"].str.contains("新品"), "单品目标TACOS(%)"] = None
-                st.session_state.sim_step = 2
-                st.rerun()
 
-    # ================================== 步骤2：单品自定义+结果对比 ==================================
-    else:
-        global_t = st.session_state.sim_global_tacos_pct
-        st.info(f"当前全局目标TACOS：{global_t}%；新品行不可编辑，留空的SKU自动沿用全局TACOS")
-        col_back, col_tip = st.columns([2,3])
-        with col_back:
-            if st.button("← 返回修改全局参数"):
-                st.session_state.sim_step = 1
-                st.rerun()
+    # -------------------------- 参数配置区 --------------------------
+    st.subheader("⚙️ 参数配置")
+    st.session_state.sim_global_tacos_pct = st.number_input(
+        "全局目标TACOS(%)",
+        min_value=0.0, max_value=50.0,
+        value=st.session_state.sim_global_tacos_pct,
+        step=0.5,
+        help="默认15%，单品留空自动沿用该全局值"
+    )
+    global_t = st.session_state.sim_global_tacos_pct
 
-        # 初始化编辑列
-        if "单品目标TACOS(%)" not in df_8020_sort.columns:
-            df_8020_sort["单品目标TACOS(%)"] = global_t
-            df_8020_sort.loc[df_8020_sort["商品流量标签"].str.contains("新品"), "单品目标TACOS(%)"] = None
+    # 初始化编辑列：新品置为None不可编辑
+    if "单品目标TACOS(%)" not in df_8020_sort.columns:
+        df_8020_sort["单品目标TACOS(%)"] = global_t
+        df_8020_sort.loc[df_8020_sort["商品流量标签"].str.contains("新品"), "单品目标TACOS(%)"] = None
 
-        # 可编辑表格
-        edit_cols = ["MSKU","品名","产品类型","商品流量标签","销售额","广告花费","单品目标TACOS(%)"]
-        df_edit = st.data_editor(
-            df_8020_sort[edit_cols],
-            column_config={
-                "单品目标TACOS(%)": st.column_config.NumberColumn(
-                    min_value=0.0, max_value=50.0, step=0.5,
-                    help="老品可填自定义值，留空沿用全局TACOS"
-                )
-            },
-            disabled=df_8020_sort["商品流量标签"].str.contains("新品").tolist(),
-            use_container_width=True, height=350
-        )
+    st.divider()
+    st.subheader("✏️ SKU单品自定义TACOS编辑表格")
+    st.info("💡 在表格修改老品的单品目标TACOS；新品不可编辑；**修改完表格，点击下方【执行模拟计算】才生成结果！改表格不会自动计算**")
 
-        # 同时计算基准（全部用全局TACOS）和模拟（用编辑后的单品值）
+    edit_cols = ["MSKU","品名","产品类型","商品流量标签","销售额","广告花费","单品目标TACOS(%)"]
+    df_edit = st.data_editor(
+        df_8020_sort[edit_cols],
+        column_config={
+            "单品目标TACOS(%)": st.column_config.NumberColumn(
+                min_value=0.0, max_value=50.0, step=0.5,
+                help="老品填写，留空自动使用全局TACOS；新品禁止编辑"
+            )
+        },
+        disabled=df_8020_sort["商品流量标签"].str.contains("新品").tolist(),
+        use_container_width=True,
+        height=360
+    )
+
+    # 【关键】只有点击按钮，才执行整套预算计算
+    run_sim = st.button("🚀 执行模拟计算", type="primary")
+    if run_sim:
         df_base, base_old_allow, sum_new_spend = calc_budget(df_8020_sort, global_t)
         df_sim, sim_old_allow, _ = calc_budget(df_edit, global_t)
 
-        # 合并对比
         df_compare = df_edit.copy()
         df_compare["基准_全局分摊预算"] = df_base["全局分摊预算"]
         df_compare["模拟_全局分摊预算"] = df_sim["全局分摊预算"]
         df_compare["预算变动差额"] = df_compare["模拟_全局分摊预算"] - df_compare["基准_全局分摊预算"]
 
-        # 汇总指标卡片
+        # 存入session_state保存结果
+        st.session_state.sim_df_result = df_compare
+        st.session_state.sim_summary = {
+            "global_t": global_t,
+            "base_old_allow": base_old_allow,
+            "sim_old_allow": sim_old_allow,
+            "sum_new_spend": sum_new_spend
+        }
+
+    st.divider()
+    # 有结果就渲染，没有就提示
+    if st.session_state.sim_df_result is not None and st.session_state.sim_summary is not None:
+        sm = st.session_state.sim_summary
+        st.subheader("📊 模拟计算输出结果")
         k1,k2,k3,k4 = st.columns(4)
         with k1:
-            st.metric("全局TACOS目标", f"{global_t}%")
+            st.metric("全局TACOS目标", f"{sm['global_t']}%")
         with k2:
-            st.metric("基准老品总预算上限", f"${base_old_allow:,.2f}")
+            st.metric("基准老品总预算上限", f"${sm['base_old_allow']:,.2f}")
         with k3:
-            st.metric("模拟老品总预算上限", f"${sim_old_allow:,.2f}", delta=f"{sim_old_allow-base_old_allow:,.2f}")
+            st.metric("模拟老品总预算上限", f"${sm['sim_old_allow']:,.2f}", delta=f"{sm['sim_old_allow']-sm['base_old_allow']:,.2f}")
         with k4:
-            st.metric("新品刚性广告费", f"${sum_new_spend:,.2f}")
+            st.metric("新品刚性广告费", f"${sm['sum_new_spend']:,.2f}")
 
-        # 对比明细表
-        st.subheader("📊 预算对比结果（基准方案 VS 单品调整方案）")
         show_cols = ["MSKU","品名","商品流量标签","单品目标TACOS(%)","销售额","广告花费",
                      "基准_全局分摊预算","模拟_全局分摊预算","预算变动差额"]
-        st.dataframe(df_compare[show_cols].sort_values("销售额", ascending=False),
-                     use_container_width=True, height=400)
-        st.caption("差额为正=该SKU调整后预算增加；差额为负=该SKU可削减预算；新品行全部显示'-'")
+        st.dataframe(
+            st.session_state.sim_df_result[show_cols].sort_values("销售额", ascending=False),
+            use_container_width=True, height=400
+        )
+        st.caption("差额>0预算增加；差额<0代表预算需要削减；新品行显示'-'")
+
+        # 增加下载CSV按钮
+        import io
+        buf = io.StringIO()
+        st.session_state.sim_df_result[show_cols].to_csv(buf, index=False, encoding="utf‑8‑sig")
+        st.download_button(
+            label="📥 下载当前对比结果CSV",
+            data=buf.getvalue(),
+            file_name="tacos_budget_compare.csv",
+            mime="text/csv"
+        )
+    else:
+        st.info("👆 修改上方表格的单品TACOS，然后点击【🚀执行模拟计算】，此处展示对比结果。")
 
 st.divider()
+
 
 
 
