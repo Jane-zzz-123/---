@@ -1344,9 +1344,16 @@ else:
             })
             # ========== 新增：全局提前round2位，解决大量尾零 ==========
             # 自动识别数字列并保留2位小数
+            # 先转数值，round
             for col in df_show.columns:
                 df_show[col] = pd.to_numeric(df_show[col], errors='coerce').fillna(df_show[col])
             df_show = df_show.round(2)
+
+            # 定义：所有数字列统一格式化保留2位小数
+            format_dict = {}
+            for col in df_show.columns:
+                if pd.api.types.is_numeric_dtype(df_show[col]):
+                    format_dict[col] = "{:.2f}"
 
             show_cols = [
                 "MSKU", "品名", "产品类型", "商品流量标签",
@@ -1375,7 +1382,9 @@ else:
 
             # 只在列存在时才应用样式，防止报错
             if "花费差值(修改-基准)【多花为正】" in df_show.columns:
-                styled_df = df_show.style.apply(color_diff, subset=["花费差值(修改-基准)【多花为正】"])
+                styled_df = df_show.style.format(format_dict).apply(color_diff,
+                                                                    subset=["花费差值(修改-基准)【多花为正】"])
+
             else:
                 styled_df = df_show.style
 
