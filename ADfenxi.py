@@ -1027,7 +1027,6 @@ if "sim_df_result" not in st.session_state:
 if "sim_summary" not in st.session_state:
     st.session_state.sim_summary = None
 
-
 # 加载基础SKU数据（原有业务逻辑完全保留）
 df_8020_raw = df_all_item.dropna(subset=["销售额"]).copy()
 df_8020_raw = df_8020_raw[df_8020_raw["销售额"] > 0]
@@ -1061,7 +1060,6 @@ else:
         return "正常老品，参与全局预算压降分配"
     df_8020_sort["商品流量标签"] = df_8020_sort.apply(get_flow_tag, axis=1)
 
-
     # 预算计算函数
     def calc_budget(input_df, global_tacos_pct):
         df = input_df.copy()
@@ -1089,60 +1087,170 @@ else:
         df["全局分摊预算"] = budget_global
         return df, old_max_allow, sum_new_spend
 
-
+    st.divider()
     # -------------------------- 参数配置区 --------------------------
     st.subheader("⚙️ 参数配置")
     st.session_state.sim_global_tacos_pct = st.number_input(
-        "全局目标TACOS(%)",
+        "【仅用于回传后运算】全局目标TACOS(%)",
         min_value=0.0, max_value=50.0,
         value=st.session_state.sim_global_tacos_pct,
         step=0.5,
-        help="默认15%，单品留空自动沿用该全局值"
+        help="⚠️真正实时调整请使用下方内嵌表格内的全局输入框"
     )
     global_t = st.session_state.sim_global_tacos_pct
 
-    # 初始化编辑列：新品置为None不可编辑
+    # 初始化编辑列：新品置为None
     if "单品目标TACOS(%)" not in df_8020_sort.columns:
         df_8020_sort["单品目标TACOS(%)"] = global_t
         df_8020_sort.loc[df_8020_sort["商品流量标签"].str.contains("新品"), "单品目标TACOS(%)"] = None
 
     st.divider()
-    st.subheader("✏️ SKU单品自定义TACOS编辑表格")
-    st.info("💡 在表格修改老品的单品目标TACOS；新品不可编辑；**修改完表格，点击下方【执行模拟计算】才生成结果！改表格不会自动计算**")
+    st.subheader("✏️ SKU单品自定义TACOS【前端实时计算表格】")
+    st.info("💡 在下方内嵌表格调整全局/单品TACOS，表格会实时计算基准、模拟预算、差额；调整完毕点击【回传结果到看板】，下方才会生成看板结果")
 
-    edit_cols = ["MSKU","品名","产品类型","商品流量标签","销售额","广告花费","单品目标TACOS(%)"]
-    df_edit = st.data_editor(
-        df_8020_sort[edit_cols],
-        column_config={
-            "单品目标TACOS(%)": st.column_config.NumberColumn(
-                min_value=0.0, max_value=50.0, step=0.5,
-                help="老品填写，留空自动使用全局TACOS；新品禁止编辑"
-            )
-        },
-        disabled=df_8020_sort["商品流量标签"].str.contains("新品").tolist(),
-        use_container_width=True,
-        height=360
-    )
+    import json
+    # 组装传给前端的基础数据
+    base_cols = ["MSKU","品名","产品类型","商品流量标签","销售额","广告花费"]
+    df_html_input = df_8020_sort[base_cols].copy()
+    mask_new = df_html_input["商品流量标签"].str.contains("新品")
+    df_html_input["单品目标TACOS"] = None
+    json_init_data = df_html_input.to_json(orient="records", force_ascii=False)
 
-    # 【关键】只有点击按钮，才执行整套预算计算
-    run_sim = st.button("🚀 执行模拟计算", type="primary")
-    if run_sim:
-        df_base, base_old_allow, sum_new_spend = calc_budget(df_8020_sort, global_t)
-        df_sim, sim_old_allow, _ = calc_budget(df_edit, global_t)
+    # ==========【修改重点：替换为普通字符串模板，不用f-string！！】==========
+    html_template = '''
+<div>
+<p>表格内全局目标TACOS(%)：<input id="js_global_tacos" type="number" min=0 max=50 step=0.5 value="__GLOBAL_TACOS__"></p>
+<div style="max-height:420px;overflow:auto;">
+<table border="1" cellpadding="4" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:12px;">
+<thead>
+    <tr style="background:#eef2f7;">
+        <th>MSKU</th>
+        <th>品名</th>
+        <th>产品类型</th>
+        <th>商品流量标签</th>
+        <th>销售额</th>
+        <th>广告花费</th>
+        <th>单品目标TACOS(%)</th>
+        <th>基准全局预算</th>
+        <th>模拟单品预算</th>
+        <th>预算差额</th>
+    </tr>
+</thead>
+<tbody id="tb_body"></tbody>
+</table>
+</div>
+<br/>
+<button onclick="doReturnData()" style="background:#228be6;color:white;padding:6px 12px;border-radius:4px;border:none;">✅回传结果到看板</button>
+<textarea id="out_json" style="width:100%;height:80px;display:none;"></textarea>
+</div>
 
-        df_compare = df_edit.copy()
-        df_compare["基准_全局分摊预算"] = df_base["全局分摊预算"]
-        df_compare["模拟_全局分摊预算"] = df_sim["全局分摊预算"]
-        df_compare["预算变动差额"] = df_compare["模拟_全局分摊预算"] - df_compare["基准_全局分摊预算"]
+<script>
+const initRaw = JSON.parse(`__JSON_DATA__`);
+let tableRows = JSON.parse(JSON.stringify(initRaw));
+const tbBody = document.getElementById("tb_body");
+const inpGlobal = document.getElementById("js_global_tacos");
 
-        # 存入session_state保存结果
-        st.session_state.sim_df_result = df_compare
-        st.session_state.sim_summary = {
-            "global_t": global_t,
-            "base_old_allow": base_old_allow,
-            "sim_old_allow": sim_old_allow,
-            "sum_new_spend": sum_new_spend
+function renderCalc(){
+    tbBody.innerHTML = "";
+    const gTacos = Number(inpGlobal.value)/100;
+    const oldList = tableRows.filter(r=>!r["商品流量标签"].includes("新品"));
+    const sumOldSales = oldList.reduce((s,item)=> s + Number(item["销售额"]), 0);
+    const sumNewAdSpend = tableRows.filter(r=>r["商品流量标签"].includes("新品")).reduce((s,item)=>s+Number(item["广告花费"]),0);
+    const oldMaxAllow = sumOldSales * gTacos - sumNewAdSpend;
+
+    tableRows.forEach((row,idx)=>{
+        const tr = document.createElement("tr");
+        const isNew = row["商品流量标签"].includes("新品");
+        const sales = Number(row["销售额"]);
+
+        let baseBudget = null;
+        if(!isNew && sumOldSales>0 && oldMaxAllow>0){
+            baseBudget = oldMaxAllow * (sales / sumOldSales);
         }
+
+        let simBudget = null;
+        let userTac = row["单品目标TACOS"];
+        let useT = (userTac===null || userTac==="") ? gTacos : Number(userTac)/100;
+        if(!isNew){
+            simBudget = sales * useT;
+        }
+        let diffVal = (baseBudget!==null && simBudget!==null) ? simBudget - baseBudget : null;
+
+        tr.innerHTML = `
+<td>${row.MSKU||""}</td>
+<td>${(row.品名||"").replace(/[<>]/g,"")}</td>
+<td>${row.产品类型||""}</td>
+<td>${row.商品流量标签||""}</td>
+<td>${sales.toFixed(2)}</td>
+<td>${Number(row.广告花费).toFixed(2)}</td>
+<td><input type="number" min=0 max=50 step=0.5 style="width:80px" ${isNew?"disabled":""} value="${userTac===null?"":userTac}" onchange="onCellChange(${idx},this.value)"></td>
+<td>${baseBudget===null?"‑":baseBudget.toFixed(2)}</td>
+<td>${simBudget===null?"‑":simBudget.toFixed(2)}</td>
+<td style="${diffVal>0?"color:#d02020":"color:#208020"}">${diffVal===null?"‑":diffVal.toFixed(2)}</td>
+        `;
+        tbBody.appendChild(tr);
+    })
+}
+
+function onCellChange(idx, val){
+    tableRows[idx]["单品目标TACOS"] = (val==="" || val===null) ? null : Number(val);
+    renderCalc();
+}
+inpGlobal.addEventListener("input",renderCalc);
+
+function doReturnData(){
+    const payload = {
+        js_global_tacos: Number(inpGlobal.value),
+        rows: tableRows
+    };
+    document.getElementById("out_json").value = JSON.stringify(payload);
+}
+renderCalc();
+</script>
+'''
+    # 替换占位符，注入Python数据
+    html_code = html_template.replace("__GLOBAL_TACOS__", str(global_t))
+    html_code = html_template.replace("__JSON_DATA__", json_init_data)
+
+    # 渲染内嵌HTML组件，高度足够放下表格+文本域
+    ret_html = st.components.v1.html(html_code, height=550, scrolling=True)
+
+    # 尝试读取HTML内textarea输出的json字符串
+    import json
+    payload_js = None
+    # components.v1.html 无法直接拿dom，改用一个小技巧：增加一个文本输入框，复制json字符串粘贴进去
+    st.info("👉点击表格内【✅回传结果到看板】，复制下方文本框里全部JSON字符串，粘贴到下面输入框，按回车解析数据")
+    copy_text = st.text_area("复制上面表格组件输出的JSON粘贴到此", height=120)
+
+    if copy_text.strip() != "":
+        try:
+            payload_js = json.loads(copy_text.strip())
+            # 把前端回传的数据写进df_8020_sort
+            df_from_js = pd.DataFrame(payload_js["rows"])
+            df_8020_sort["单品目标TACOS(%)"] = df_from_js["单品目标TACOS"]
+            # 同步全局tacos
+            st.session_state.sim_global_tacos_pct = payload_js["js_global_tacos"]
+            global_t = payload_js["js_global_tacos"]
+
+            # ====== 直接执行你原来整套预算计算逻辑 ======
+            df_base, base_old_allow, sum_new_spend = calc_budget(df_8020_sort, global_t)
+            df_sim, sim_old_allow, _ = calc_budget(df_8020_sort, global_t)
+
+            df_compare = df_8020_sort.copy()
+            df_compare["基准_全局分摊预算"] = df_base["全局分摊预算"]
+            df_compare["模拟_全局分摊预算"] = df_sim["全局分摊预算"]
+            df_compare["预算变动差额"] = df_compare["模拟_全局分摊预算"] - df_compare["基准_全局分摊预算"]
+
+            st.session_state.sim_df_result = df_compare
+            st.session_state.sim_summary = {
+                "global_t": global_t,
+                "base_old_allow": base_old_allow,
+                "sim_old_allow": sim_old_allow,
+                "sum_new_spend": sum_new_spend
+            }
+            st.success("✅前端表格数据解析完成，已生成看板结果")
+        except Exception as e:
+            st.error(f"JSON解析失败：{str(e)}，请完整复制表格输出全部内容")
 
     st.divider()
     # 有结果就渲染，没有就提示
@@ -1160,7 +1268,7 @@ else:
             st.metric("新品刚性广告费", f"${sm['sum_new_spend']:,.2f}")
 
         show_cols = ["MSKU","品名","商品流量标签","单品目标TACOS(%)","销售额","广告花费",
-                     "基准_全局分摊预算","模拟_全局分摊预算","预算变动差额"]
+                    "基准_全局分摊预算","模拟_全局分摊预算","预算变动差额"]
         st.dataframe(
             st.session_state.sim_df_result[show_cols].sort_values("销售额", ascending=False),
             use_container_width=True, height=400
@@ -1178,9 +1286,12 @@ else:
             mime="text/csv"
         )
     else:
-        st.info("👆 修改上方表格的单品TACOS，然后点击【🚀执行模拟计算】，此处展示对比结果。")
+        st.info("👆使用上方【前端实时计算表格】调整参数，点击回传，复制JSON粘贴至输入框，此处展示对比结果。")
 
 st.divider()
+
+
+
 
 
 
