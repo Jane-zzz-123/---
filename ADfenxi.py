@@ -1066,7 +1066,7 @@ else:
         )
         json_rows = df_html[["MSKU","品名","产品类型","商品流量标签","销售额","单品当前TACOS","广告花费"]].to_json(orient="records", force_ascii=False)
 
-        # HTML模板【新版：增加修改后整体TACOS + 差值阈值±1变色】
+        # HTML模板【✅新增一键复制剪贴板，差值阈值±1变色】
         html_tpl = '''
 <div style="font-size:13px;">
 <!-- 汇总卡片区 -->
@@ -1096,7 +1096,8 @@ else:
 </table>
 </div>
 <br/>
-<button onclick="saveData()" style="background:#165DFF;color:white;padding:6px 14px;border-radius:4px;border:none;">✅回传结果到看板</button>
+<button onclick="saveData()" style="background:#165DFF;color:white;padding:6px 14px;border-radius:4px;border:none;">✅回传结果到看板（一键复制JSON）</button>
+<div id="tip" style="color:#00875a;display:none;margin:8px 0;">✅JSON已复制到剪贴板，直接粘贴到下方输入框！</div>
 <textarea id="out" style="width:100%;height:100px;"></textarea>
 </div>
 <script>
@@ -1196,13 +1197,18 @@ function updateTacos(idx,val){
   rows[idx].editTacos = Number(val);
   recalc();
 }
-function saveData(){
-  document.getElementById("out").value = JSON.stringify({
+async function saveData(){
+  const payload = JSON.stringify({
     global_t:gT,
     total_sales:totalSales,
     sum_new_ad: sumNewAd,
     rows: rows
   });
+  document.getElementById("out").value = payload;
+  // ✅ 新增：直接复制到剪贴板
+  await navigator.clipboard.writeText(payload);
+  document.getElementById("tip").style.display="block";
+  setTimeout(()=>{document.getElementById("tip").style.display="none"},3000)
 }
 recalc();
 </script>
@@ -1211,7 +1217,7 @@ recalc();
         html_code = html_code.replace("__ROWS__", json_rows)
         st.components.v1.html(html_code, height=600, scrolling=True)
 
-        st.info("👉调整完表格后，复制下方文本框里全部JSON，粘贴到输入框解析结果")
+        st.info("👉调整完表格后，点击【回传结果到看板】一键复制JSON，直接粘贴到下方输入框解析结果")
         json_input = st.text_area("粘贴回传JSON", height=150)
         if json_input.strip()!="":
             try:
@@ -1223,7 +1229,7 @@ recalc();
                     "total_sales": payload["total_sales"],
                     "sum_new_ad": payload["sum_new_ad"]
                 }
-                st.success("解析成功")
+                st.success("解析成功✅，已加载本次TACOS模拟结果")
             except Exception as e:
                 st.error(f"解析失败：{e}")
 
@@ -1241,6 +1247,7 @@ recalc();
         st.dataframe(st.session_state.sim_df_result, use_container_width=True)
 
 st.divider()
+
 
 
 
