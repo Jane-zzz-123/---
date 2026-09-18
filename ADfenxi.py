@@ -1046,6 +1046,7 @@ else:
         if sales > 0 and (ad_sales / sales) >= 0.95:
             return "重度广告依赖"
         return "正常老品"
+
     df_8020_sort["商品流量标签"] = df_8020_sort.apply(get_flow_tag, axis=1)
 
     st.subheader("⚙️ 第一步：设置全局目标TACOS")
@@ -1065,7 +1066,7 @@ else:
         )
         json_rows = df_html[["MSKU","品名","产品类型","商品流量标签","销售额","单品当前TACOS","广告花费"]].to_json(orient="records", force_ascii=False)
 
-        # HTML模板【新版，双列对比，基准固定，修改TACOS独立计算】
+        # HTML模板【新版：增加修改后整体TACOS + 差值阈值±1变色】
         html_tpl = '''
 <div style="font-size:13px;">
 <!-- 汇总卡片区 -->
@@ -1075,6 +1076,7 @@ else:
   <div><b>扣新品后老品预算池上限：</b>$<span id="sumOldAllow" style="color:#00B42A;font-weight:bold;">0</span></div>
   <div><b>基准老品总花费：</b>$<span id="baseOldTotal" style="color:#722ED1;font-weight:bold;">0</span></div>
   <div><b>修改后模拟总花费：</b>$<span id="editTotalSpend" style="color:#722ED1;font-weight:bold;">0</span></div>
+  <div><b>修改后整体TACOS：</b><span id="editWholeTacos" style="color:#F53F3F;font-weight:bold;">0%</span></div>
 </div>
 
 <div style="max-height:400px;overflow:auto;">
@@ -1157,10 +1159,10 @@ function recalc(){
         sumBaseOld += baseSpend;
     }
 
-    // 差值颜色
+    // ========== 阈值：差值>1红，差值<-1绿，±1内黑色 ==========
     let diffColor = "#000000";
-    if(diff > 0) diffColor = "#c41e3a";
-    if(diff < 0) diffColor = "#00875a";
+    if(diff > 1) diffColor = "#c41e3a";
+    if(diff < -1) diffColor = "#00875a";
 
     tr.innerHTML = `
 <td>${row.MSKU||""}</td>
@@ -1179,11 +1181,15 @@ function recalc(){
     tb.appendChild(tr);
   })
 
+  // 【新增】修改后整体TACOS
+  let editWholeTacos = totalSales>0 ? (sumEditTotal / totalSales *100) :0;
+
   // 更新顶部汇总
   document.getElementById("sumTotalAllow").innerText = totalAllow.toFixed(2);
   document.getElementById("sumOldAllow").innerText = oldBudgetPool.toFixed(2);
   document.getElementById("baseOldTotal").innerText = sumBaseOld.toFixed(2);
   document.getElementById("editTotalSpend").innerText = sumEditTotal.toFixed(2);
+  document.getElementById("editWholeTacos").innerText = editWholeTacos.toFixed(2)+"%";
 }
 
 function updateTacos(idx,val){
@@ -1235,6 +1241,7 @@ recalc();
         st.dataframe(st.session_state.sim_df_result, use_container_width=True)
 
 st.divider()
+
 
 
 
