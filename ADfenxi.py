@@ -1205,13 +1205,25 @@ else:
           rows[idx].editTacos = Number(val);
           recalc();
         }
+        // ========== 【修改这里！复制JSON前，所有数值round2位】 ==========
+        function roundObj2(obj) {
+            const newObj = {...obj};
+            for(let k in newObj) {
+                const v = newObj[k];
+                if(typeof v === 'number'){
+                    newObj[k] = Math.round(v * 100) / 100;
+                }
+            }
+            return newObj;
+        }
         async function saveData(){
-          const payload = JSON.stringify({
+          const payloadRaw = {
             global_t:gT,
             total_sales:totalSales,
             sum_new_ad: sumNewAd,
-            rows: rows
-          });
+            rows: rows.map(roundObj2)
+          };
+          const payload = JSON.stringify(payloadRaw);
           await navigator.clipboard.writeText(payload);
           document.getElementById("tip").style.display="block";
           setTimeout(()=>{document.getElementById("tip").style.display="none"},3000)
@@ -1361,30 +1373,8 @@ else:
                 styled_df = df_show.style
 
             st.dataframe(styled_df, use_container_width=True, height=450)
-
-
-            # ========== 条件格式：差值>1标红，<-1标绿 ==========
-            def color_diff(s):
-                colors = []
-                for v in s:
-                    if v == "-" or pd.isna(v):
-                        colors.append("")
-                    elif float(v) > 1:
-                        colors.append("background-color: #ffcccc; color: #c41e3a; font-weight:bold")
-                    elif float(v) < -1:
-                        colors.append("background-color: #d4edda; color: #00875a; font-weight:bold")
-                    else:
-                        colors.append("")
-                return colors
-
-            # 只在列存在时才应用样式，防止报错
-            if "花费差值(修改-基准)【多花为正】" in df_show.columns:
-                styled_df = df_show.style.apply(color_diff, subset=["花费差值(修改-基准)【多花为正】"])
-            else:
-                styled_df = df_show.style
-
-            st.dataframe(styled_df, use_container_width=True, height=450)
     st.divider()
+
 
 
 
