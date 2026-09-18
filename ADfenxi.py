@@ -1052,7 +1052,7 @@ else:
     global_t = st.number_input(
         "全局目标TACOS(%)", min_value=0.0, max_value=50.0,
         value=15.0, step=0.5,
-        help="全局目标TACOS，新品广告花费保持不变，老品预算总额上限=全店允许花费-新品广告花费，老品按销售额权重分摊"
+        help="全局目标TACOS，新品广告花费保持不变；基准预算：老品预算池按销售额比例分摊，作为对标基准。运营修改TACOS为独立测算，用于对比"
     )
     start_calc = st.button("✅ 确认参数，生成模拟表格", type="primary")
 
@@ -1063,12 +1063,9 @@ else:
         df_html["单品当前TACOS"] = df_html.apply(
             lambda r: round(r["广告花费"]/r["销售额"]*100,2) if r["销售额"]>0 else 0, axis=1
         )
-        # 标记：默认单品目标TACOS=全局TACOS，这个值用来做权重系数
-        df_html["单品目标TACOS"] = global_t
-        df_html.loc[df_html["商品流量标签"].str.contains("新品"), "单品目标TACOS"] = None
-        json_rows = df_html[["MSKU","品名","产品类型","商品流量标签","销售额","单品当前TACOS","广告花费","单品目标TACOS"]].to_json(orient="records", force_ascii=False)
+        json_rows = df_html[["MSKU","品名","产品类型","商品流量标签","销售额","单品当前TACOS","广告花费"]].to_json(orient="records", force_ascii=False)
 
-        # HTML模板，重写JS分摊逻辑
+        # HTML模板【新版，双列对比，基准固定，修改TACOS独立计算】
         html_tpl = '''
 <div style="font-size:13px;">
 <!-- 汇总卡片区 -->
@@ -1076,9 +1073,8 @@ else:
   <div><b>当前选定全局TACOS：</b><span id="sumT" style="color:#165DFF;font-weight:bold;">__GT__%</span></div>
   <div><b>全店允许总广告花费：</b>$<span id="sumTotalAllow" style="color:#00B42A;font-weight:bold;">0</span></div>
   <div><b>扣新品后老品预算池上限：</b>$<span id="sumOldAllow" style="color:#00B42A;font-weight:bold;">0</span></div>
-  <div><b>当前模拟总广告花费：</b>$<span id="sumSimTotal" style="color:#722ED1;font-weight:bold;">0</span></div>
-  <div><b>模拟vs允许差额：</b>$<span id="sumDiff" style="font-weight:bold;">0</span></div>
-  <div><b>模拟后预计整体TACOS：</b><span id="sumRealTacos" style="color:#F53F3F;font-weight:bold;">0%</span></div>
+  <div><b>基准老品总花费：</b>$<span id="baseOldTotal" style="color:#722ED1;font-weight:bold;">0</span></div>
+  <div><b>修改后模拟总花费：</b>$<span id="editTotalSpend" style="color:#722ED1;font-weight:bold;">0</span></div>
 </div>
 
 <div style="max-height:400px;overflow:auto;">
@@ -1087,7 +1083,11 @@ else:
 <tr style="background:#e5e6eb;">
 <th>MSKU</th><th>品名</th><th>产品类型</th><th>商品流量标签</th>
 <th>销售额</th><th>当前实际TACOS(%)</th><th>当前实际广告花费</th>
-<th>单品权重TACOS(%)<br>(老品可修改)</th><th>分摊后目标广告花费</th>
+<th>单品目标TACOS(%)<br/>【基准只读】</th>
+<th>单品目标TACOS广告花费<br/>【基准只读】</th>
+<th>修改的TACOS(%)<br/>【可编辑】</th>
+<th>修改TACOS的广告花费</th>
+<th>花费差值(基准-修改)</th>
 </tr>
 </thead>
 <tbody id="tb"></tbody>
@@ -1103,55 +1103,64 @@ const gT = Number("__GT__");
 const totalSales = rows.reduce((s,r)=>s+Number(r["销售额"]),0);
 const tb = document.getElementById("tb");
 
-function recalc(){
-  tb.innerHTML = "";
-  // 1. 先算出新品总广告花费
-  let sumNewAd = 0;
-  let oldRows = [];
-  rows.forEach((row)=>{
+// 第一步：预先计算基准分摊（固定不变）
+let sumNewAd = 0;
+let oldRows = [];
+rows.forEach((row)=>{
     const isNew = row["商品流量标签"].includes("新品");
     if(isNew){
-      sumNewAd += Number(row["广告花费"]);
+        sumNewAd += Number(row["广告花费"]);
+        row.baseSpend = Number(row["广告花费"]);
+        row.baseTacos = null;
     }else{
-      oldRows.push(row);
+        oldRows.push(row);
     }
-  });
-  // 2. 全店允许广告花费 & 老品预算池上限
-  const totalAllow = totalSales * gT / 100;
-  const oldBudgetPool = Math.max(0, totalAllow - sumNewAd);
-  const sumOldSales = oldRows.reduce((s, r)=> s + Number(r["销售额"]),0);
+});
+const totalAllow = totalSales * gT / 100;
+const oldBudgetPool = Math.max(0, totalAllow - sumNewAd);
+const sumOldSales = oldRows.reduce((s, r)=> s + Number(r["销售额"]),0);
+// 老品基准：按销售额比例分摊预算池
+oldRows.forEach(r=>{
+    r.baseSpend = oldBudgetPool * (Number(r["销售额"]) / sumOldSales);
+    r.baseTacos = (Number(r["销售额"]) > 0) ? (r.baseSpend / Number(r["销售额"]) *100) : 0;
+    // 修改TACOS 默认值 = 基准TACOS
+    r.editTacos = r.baseTacos;
+})
 
-  // 3. 计算老品加权系数：权重 = 销售额 * 用户填写的单品TACOS
-  let sumWeight = 0;
-  oldRows.forEach(r=>{
-    let t = r["单品目标TACOS"];
-    t = (t===null || t==="") ? gT : Number(t);
-    r._weight = Number(r["销售额"]) * t;
-    sumWeight += r._weight;
-  })
+function recalc(){
+  tb.innerHTML = "";
+  let sumEditTotal = sumNewAd;
+  let sumBaseOld = 0;
 
-  // 渲染每一行
   rows.forEach((row,idx)=>{
     const tr = document.createElement("tr");
     const isNew = row["商品流量标签"].includes("新品");
     const sales = Number(row["销售额"]);
     const curAd = Number(row["广告花费"]);
     const curTacos = Number(row["单品当前TACOS"]);
-    let targetT = row["单品目标TACOS"];
-    let targetAd = null;
+
+    let baseTacos = row.baseTacos;
+    let baseSpend = row.baseSpend;
+    let editTacos = row.editTacos;
+    let editSpend = 0;
+    let diff = 0;
 
     if(isNew){
-      targetT = null;
-      targetAd = curAd; //新品固定原广告花费
+        editTacos = null;
+        editSpend = baseSpend;
+        diff = 0;
     }else{
-      targetT = (targetT===null || targetT==="") ? gT : Number(targetT);
-      // 按权重分摊老品预算池
-      if(sumWeight>0){
-        targetAd = oldBudgetPool * (row._weight / sumWeight);
-      }else{
-        targetAd = 0;
-      }
+        editTacos = Number(row.editTacos);
+        editSpend = sales * editTacos / 100;
+        diff = baseSpend - editSpend;
+        sumEditTotal += editSpend;
+        sumBaseOld += baseSpend;
     }
+
+    // 差值颜色
+    let diffColor = "#000000";
+    if(diff > 0) diffColor = "#c41e3a";
+    if(diff < 0) diffColor = "#00875a";
 
     tr.innerHTML = `
 <td>${row.MSKU||""}</td>
@@ -1161,31 +1170,24 @@ function recalc(){
 <td>$${sales.toFixed(2)}</td>
 <td>${curTacos.toFixed(2)}%</td>
 <td>$${curAd.toFixed(2)}</td>
-<td><input type="number" min=0 max=50 step=0.5 style="width:70px" ${isNew?"disabled":""} value="${targetT===null?"":targetT}" onchange="upd(${idx},this.value)"></td>
-<td>$${targetAd===null?"-":targetAd.toFixed(2)}</td>
+<td>${isNew ? "-" : baseTacos.toFixed(2)+"%"}</td>
+<td>${isNew ? "-" : "$"+baseSpend.toFixed(2)}</td>
+<td>${isNew ? "-" : `<input type="number" min=0 max=50 step=0.5 style="width:70px" value="${editTacos.toFixed(2)}" onchange="updateTacos(${idx},this.value)">`}</td>
+<td>${isNew ? "-" : "$"+editSpend.toFixed(2)}</td>
+<td style="color:${diffColor};font-weight:bold">${isNew ? "-" : diff.toFixed(2)}</td>
 `;
     tb.appendChild(tr);
   })
 
-  // 汇总模拟总花费
-  let sumSimOldAd = 0;
-  oldRows.forEach(r=>{
-    sumSimOldAd += r._weight ? oldBudgetPool * (r._weight / sumWeight) :0;
-  })
-  const sumSimTotal = sumNewAd + sumSimOldAd;
-  const diff = sumSimTotal - totalAllow;
-  const realTacos = totalSales>0 ? sumSimTotal / totalSales *100 : 0;
-
   // 更新顶部汇总
   document.getElementById("sumTotalAllow").innerText = totalAllow.toFixed(2);
   document.getElementById("sumOldAllow").innerText = oldBudgetPool.toFixed(2);
-  document.getElementById("sumSimTotal").innerText = sumSimTotal.toFixed(2);
-  document.getElementById("sumDiff").innerText = diff.toFixed(2);
-  document.getElementById("sumRealTacos").innerText = realTacos.toFixed(2)+"%";
+  document.getElementById("baseOldTotal").innerText = sumBaseOld.toFixed(2);
+  document.getElementById("editTotalSpend").innerText = sumEditTotal.toFixed(2);
 }
 
-function upd(idx,val){
-  rows[idx]["单品目标TACOS"] = val==="" ? gT : Number(val);
+function updateTacos(idx,val){
+  rows[idx].editTacos = Number(val);
   recalc();
 }
 function saveData(){
@@ -1205,7 +1207,7 @@ recalc();
 
         st.info("👉调整完表格后，复制下方文本框里全部JSON，粘贴到输入框解析结果")
         json_input = st.text_area("粘贴回传JSON", height=150)
-        if json_input.strip() != "":
+        if json_input.strip()!="":
             try:
                 payload = json.loads(json_input.strip())
                 df_res = pd.DataFrame(payload["rows"])
@@ -1233,6 +1235,7 @@ recalc();
         st.dataframe(st.session_state.sim_df_result, use_container_width=True)
 
 st.divider()
+
 
 
 
