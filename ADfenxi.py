@@ -1323,6 +1323,11 @@ else:
                 "diff_spend": "花费差值(修改-基准)【多花为正】",
                 "广告花费": "当前实际广告花费"
             })
+            # ========== 新增：全局提前round2位，解决大量尾零 ==========
+            # 自动识别数字列并保留2位小数
+            for col in df_show.columns:
+                df_show[col] = pd.to_numeric(df_show[col], errors='coerce').fillna(df_show[col])
+            df_show = df_show.round(2)
 
             show_cols = [
                 "MSKU", "品名", "产品类型", "商品流量标签",
@@ -1335,31 +1340,28 @@ else:
             show_cols = [c for c in show_cols if c in df_show.columns]
             df_show = df_show[show_cols].sort_values("销售额", ascending=False)
 
-            # ========== 数值格式化：所有金额、TACOS统一保留两位小数 ==========
-            # 金额类列
-            money_cols = [
-                "销售额", "当前实际广告花费",
-                "单品目标TACOS广告花费【基准只读】",
-                "修改TACOS的广告花费",
-                "花费差值(修改-基准)【多花为正】"
-            ]
-            for col in money_cols:
-                if col in df_show.columns:
-                    df_show[col] = df_show[col].apply(
-                        lambda x: round(float(x), 2) if pd.notna(x) else "-"
-                    )
+            # ========== 条件格式：差值>1标红，<-1标绿 ==========
+            def color_diff(s):
+                colors = []
+                for v in s:
+                    if v == "-" or pd.isna(v):
+                        colors.append("")
+                    elif float(v) > 1:
+                        colors.append("background-color: #ffcccc; color: #c41e3a; font-weight:bold")
+                    elif float(v) < -1:
+                        colors.append("background-color: #d4edda; color: #00875a; font-weight:bold")
+                    else:
+                        colors.append("")
+                return colors
 
-            # 百分比类列（TACOS）
-            pct_cols = [
-                "当前实际TACOS(%)",
-                "单品目标TACOS(%)【基准只读】",
-                "修改的TACOS(%)【可编辑】"
-            ]
-            for col in pct_cols:
-                if col in df_show.columns:
-                    df_show[col] = df_show[col].apply(
-                        lambda x: round(float(x), 2) if pd.notna(x) else "-"
-                    )
+            # 只在列存在时才应用样式，防止报错
+            if "花费差值(修改-基准)【多花为正】" in df_show.columns:
+                styled_df = df_show.style.apply(color_diff, subset=["花费差值(修改-基准)【多花为正】"])
+            else:
+                styled_df = df_show.style
+
+            st.dataframe(styled_df, use_container_width=True, height=450)
+
 
             # ========== 条件格式：差值>1标红，<-1标绿 ==========
             def color_diff(s):
