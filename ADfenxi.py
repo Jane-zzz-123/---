@@ -1088,134 +1088,138 @@ else:
         gt_val = st.session_state.html_global_t
 
         html_tpl = '''
-<div style="font-size:13px;">
-<div style="display:flex;gap:15px;flex-wrap:wrap;margin-bottom:15px;padding:10px;background:#f6f8fa;border-radius:6px;">
-  <div><b>当前选定全局TACOS：</b><span id="sumT" style="color:#165DFF;font-weight:bold;">__GT__%</span></div>
-  <div><b>全店允许总广告花费：</b>$<span id="sumTotalAllow" style="color:#00B42A;font-weight:bold;">0</span></div>
-  <div><b>扣新品后老品预算池上限：</b>$<span id="sumOldAllow" style="color:#00B42A;font-weight:bold;">0</span></div>
-  <div><b>基准老品总花费：</b>$<span id="baseOldTotal" style="color:#722ED1;font-weight:bold;">0</span></div>
-  <div><b>修改后模拟总花费：</b>$<span id="editTotalSpend" style="color:#722ED1;font-weight:bold;">0</span></div>
-  <div><b>修改后整体TACOS：</b><span id="editWholeTacos" style="color:#F53F3F;font-weight:bold;">0%</span></div>
-</div>
+        <div style="font-size:13px;">
+        <div style="display:flex;gap:15px;flex-wrap:wrap;margin-bottom:15px;padding:10px;background:#f6f8fa;border-radius:6px;">
+          <div><b>当前选定全局TACOS：</b><span id="sumT" style="color:#165DFF;font-weight:bold;">__GT__%</span></div>
+          <div><b>全店允许总广告花费：</b>$<span id="sumTotalAllow" style="color:#00B42A;font-weight:bold;">0</span></div>
+          <div><b>扣新品后老品预算池上限：</b>$<span id="sumOldAllow" style="color:#00B42A;font-weight:bold;">0</span></div>
+          <div><b>基准老品总花费：</b>$<span id="baseOldTotal" style="color:#722ED1;font-weight:bold;">0</span></div>
+          <div><b>修改后模拟老品花费：</b>$<span id="editOldTotal" style="color:#722ED1;font-weight:bold;">0</span></div>
+          <div><b>修改后模拟总花费(含新品)：</b>$<span id="editTotalSpend" style="color:#722ED1;font-weight:bold;">0</span></div>
+          <div><b>修改后整体TACOS：</b><span id="editWholeTacos" style="color:#F53F3F;font-weight:bold;">0%</span></div>
+        </div>
 
-<div style="max-height:400px;overflow:auto;">
-<table border="1" cellpadding="4" cellspacing="0" style="width:100%;border-collapse:collapse;">
-<thead>
-<tr style="background:#e5e6eb;">
-<th>MSKU</th><th>品名</th><th>产品类型</th><th>商品流量标签</th>
-<th>销售额</th><th>当前实际TACOS(%)</th><th>当前实际广告花费</th>
-<th>单品目标TACOS(%)<br/>【基准只读】</th>
-<th>单品目标TACOS广告花费<br/>【基准只读】</th>
-<th>修改的TACOS(%)<br/>【可编辑】</th>
-<th>修改TACOS的广告花费</th>
-<th>花费差值(修改-基准)<br/>【多花为正】</th>
-</tr>
-</thead>
-<tbody id="tb"></tbody>
-</table>
-</div>
-<br/>
-<button onclick="saveData()" style="background:#165DFF;color:white;padding:6px 14px;border-radius:4px;border:none;">✅ 回传结果到看板（一键复制JSON）</button>
-<div id="tip" style="color:#00875a;display:none;margin:8px 0;">✅JSON已复制到剪贴板！粘贴到下方输入框，点击解析按钮即可</div>
-</div>
-<script>
-const rows = JSON.parse(`__ROWS__`);
-const gT = Number("__GT__");
-const totalSales = rows.reduce((s,r)=>s+Number(r["销售额"]),0);
-const tb = document.getElementById("tb");
+        <div style="max-height:400px;overflow:auto;">
+        <table border="1" cellpadding="4" cellspacing="0" style="width:100%;border-collapse:collapse;">
+        <thead>
+        <tr style="background:#e5e6eb;">
+        <th>MSKU</th><th>品名</th><th>产品类型</th><th>商品流量标签</th>
+        <th>销售额</th><th>当前实际TACOS(%)</th><th>当前实际广告花费</th>
+        <th>单品目标TACOS(%)<br/>【基准只读】</th>
+        <th>单品目标TACOS广告花费<br/>【基准只读】</th>
+        <th>修改的TACOS(%)<br/>【可编辑】</th>
+        <th>修改TACOS的广告花费</th>
+        <th>花费差值(修改-基准)<br/>【多花为正】</th>
+        </tr>
+        </thead>
+        <tbody id="tb"></tbody>
+        </table>
+        </div>
+        <br/>
+        <button onclick="saveData()" style="background:#165DFF;color:white;padding:6px 14px;border-radius:4px;border:none;">✅ 回传结果到看板（一键复制JSON）</button>
+        <div id="tip" style="color:#00875a;display:none;margin:8px 0;">✅JSON已复制到剪贴板！粘贴到下方输入框，点击解析按钮即可</div>
+        </div>
+        <script>
+        const rows = JSON.parse(`__ROWS__`);
+        const gT = Number("__GT__");
+        const totalSales = rows.reduce((s,r)=>s+Number(r["销售额"]),0);
+        const tb = document.getElementById("tb");
 
-let sumNewAd = 0;
-let oldRows = [];
-rows.forEach((row)=>{
-    const isNew = row["商品流量标签"].includes("新品");
-    if(isNew){
-        sumNewAd += Number(row["广告花费"]);
-        row.baseSpend = Number(row["广告花费"]);
-        row.baseTacos = null;
-    }else{
-        oldRows.push(row);
-    }
-});
-const totalAllow = totalSales * gT / 100;
-const oldBudgetPool = Math.max(0, totalAllow - sumNewAd);
-const sumOldSales = oldRows.reduce((s, r)=> s + Number(r["销售额"]),0);
-oldRows.forEach(r=>{
-    r.baseSpend = oldBudgetPool * (Number(r["销售额"]) / sumOldSales);
-    r.baseTacos = (Number(r["销售额"]) > 0) ? (r.baseSpend / Number(r["销售额"]) *100) : 0;
-    r.editTacos = r.baseTacos;
-})
+        let sumNewAd = 0;
+        let oldRows = [];
+        rows.forEach((row)=>{
+            const isNew = row["商品流量标签"].includes("新品");
+            if(isNew){
+                sumNewAd += Number(row["广告花费"]);
+                row.baseSpend = Number(row["广告花费"]);
+                row.baseTacos = null;
+            }else{
+                oldRows.push(row);
+            }
+        });
+        const totalAllow = totalSales * gT / 100;
+        const oldBudgetPool = Math.max(0, totalAllow - sumNewAd);
+        const sumOldSales = oldRows.reduce((s, r)=> s + Number(r["销售额"]),0);
+        oldRows.forEach(r=>{
+            r.baseSpend = oldBudgetPool * (Number(r["销售额"]) / sumOldSales);
+            r.baseTacos = (Number(r["销售额"]) > 0) ? (r.baseSpend / Number(r["销售额"]) *100) : 0;
+            r.editTacos = r.baseTacos;
+        })
 
-function recalc(){
-  tb.innerHTML = "";
-  let sumEditTotal = sumNewAd;
-  let sumBaseOld = 0;
-  rows.forEach((row,idx)=>{
-    const tr = document.createElement("tr");
-    const isNew = row["商品流量标签"].includes("新品");
-    const sales = Number(row["销售额"]);
-    const curAd = Number(row["广告花费"]);
-    const curTacos = Number(row["单品当前TACOS"]);
-    let baseTacos = row.baseTacos;
-    let baseSpend = row.baseSpend;
-    let editTacos = row.editTacos;
-    let editSpend = 0;
-    let diff = 0;
-    if(isNew){
-        editTacos = null;
-        editSpend = baseSpend;
-        diff = 0;
-    }else{
-        editTacos = Number(row.editTacos);
-        editSpend = sales * editTacos / 100;
-        // 修改差值逻辑：修改花费 - 基准花费
-        diff = editSpend - baseSpend;
-        sumEditTotal += editSpend;
-        sumBaseOld += baseSpend;
-    }
-    let diffColor = "#000000";
-    if(diff > 1) diffColor = "#c41e3a";   // 多花，红色
-    if(diff < -1) diffColor = "#00875a"; // 少花，绿色
-    tr.innerHTML = `
-<td>${row.MSKU||""}</td>
-<td>${(row.品名||"").replace(/[<>]/g,"")}</td>
-<td>${row.产品类型||""}</td>
-<td>${row.商品流量标签||""}</td>
-<td>$${sales.toFixed(2)}</td>
-<td>${curTacos.toFixed(2)}%</td>
-<td>$${curAd.toFixed(2)}</td>
-<td>${isNew ? "-" : baseTacos.toFixed(2)+"%"}</td>
-<td>${isNew ? "-" : "$"+baseSpend.toFixed(2)}</td>
-<td>${isNew ? "-" : `<input type="number" min=0 max=50 step=0.5 style="width:70px" value="${editTacos.toFixed(2)}" onchange="updateTacos(${idx},this.value)">`}</td>
-<td>${isNew ? "-" : "$"+editSpend.toFixed(2)}</td>
-<td style="color:${diffColor};font-weight:bold">${isNew ? "-" : diff.toFixed(2)}</td>
-`;
-    tb.appendChild(tr);
-  })
-  let editWholeTacos = totalSales>0 ? (sumEditTotal / totalSales *100) :0;
-  document.getElementById("sumTotalAllow").innerText = totalAllow.toFixed(2);
-  document.getElementById("sumOldAllow").innerText = oldBudgetPool.toFixed(2);
-  document.getElementById("baseOldTotal").innerText = sumBaseOld.toFixed(2);
-  document.getElementById("editTotalSpend").innerText = sumEditTotal.toFixed(2);
-  document.getElementById("editWholeTacos").innerText = editWholeTacos.toFixed(2)+"%";
-}
-function updateTacos(idx,val){
-  rows[idx].editTacos = Number(val);
-  recalc();
-}
-async function saveData(){
-  const payload = JSON.stringify({
-    global_t:gT,
-    total_sales:totalSales,
-    sum_new_ad: sumNewAd,
-    rows: rows
-  });
-  await navigator.clipboard.writeText(payload);
-  document.getElementById("tip").style.display="block";
-  setTimeout(()=>{document.getElementById("tip").style.display="none"},3000)
-}
-recalc();
-</script>
-'''
+        function recalc(){
+          tb.innerHTML = "";
+          let sumEditTotal = sumNewAd;
+          let sumBaseOld = 0;
+          let sumEditOld = 0; //新增：老品模拟花费汇总
+          rows.forEach((row,idx)=>{
+            const tr = document.createElement("tr");
+            const isNew = row["商品流量标签"].includes("新品");
+            const sales = Number(row["销售额"]);
+            const curAd = Number(row["广告花费"]);
+            const curTacos = Number(row["单品当前TACOS"]);
+            let baseTacos = row.baseTacos;
+            let baseSpend = row.baseSpend;
+            let editTacos = row.editTacos;
+            let editSpend = 0;
+            let diff = 0;
+            if(isNew){
+                editTacos = null;
+                editSpend = baseSpend;
+                diff = 0;
+            }else{
+                editTacos = Number(row.editTacos);
+                editSpend = sales * editTacos / 100;
+                diff = editSpend - baseSpend;
+                sumEditTotal += editSpend;
+                sumBaseOld += baseSpend;
+                sumEditOld += editSpend; //老品累加
+            }
+            let diffColor = "#000000";
+            if(diff > 1) diffColor = "#c41e3a";   // 多花，红色
+            if(diff < -1) diffColor = "#00875a"; // 少花，绿色
+            tr.innerHTML = `
+        <td>${row.MSKU||""}</td>
+        <td>${(row.品名||"").replace(/[<>]/g,"")}</td>
+        <td>${row.产品类型||""}</td>
+        <td>${row.商品流量标签||""}</td>
+        <td>$${sales.toFixed(2)}</td>
+        <td>${curTacos.toFixed(2)}%</td>
+        <td>$${curAd.toFixed(2)}</td>
+        <td>${isNew ? "-" : baseTacos.toFixed(2)+"%"}</td>
+        <td>${isNew ? "-" : "$"+baseSpend.toFixed(2)}</td>
+        <td>${isNew ? "-" : `<input type="number" min=0 max=50 step=0.5 style="width:70px" value="${editTacos.toFixed(2)}" onchange="updateTacos(${idx},this.value)">`}</td>
+        <td>${isNew ? "-" : "$"+editSpend.toFixed(2)}</td>
+        <td style="color:${diffColor};font-weight:bold">${isNew ? "-" : diff.toFixed(2)}</td>
+        `;
+            tb.appendChild(tr);
+          })
+          let editWholeTacos = totalSales>0 ? (sumEditTotal / totalSales *100) :0;
+          document.getElementById("sumTotalAllow").innerText = totalAllow.toFixed(2);
+          document.getElementById("sumOldAllow").innerText = oldBudgetPool.toFixed(2);
+          document.getElementById("baseOldTotal").innerText = sumBaseOld.toFixed(2);
+          document.getElementById("editOldTotal").innerText = sumEditOld.toFixed(2); //老品模拟总额
+          document.getElementById("editTotalSpend").innerText = sumEditTotal.toFixed(2);
+          document.getElementById("editWholeTacos").innerText = editWholeTacos.toFixed(2)+"%";
+        }
+        function updateTacos(idx,val){
+          rows[idx].editTacos = Number(val);
+          recalc();
+        }
+        async function saveData(){
+          const payload = JSON.stringify({
+            global_t:gT,
+            total_sales:totalSales,
+            sum_new_ad: sumNewAd,
+            rows: rows
+          });
+          await navigator.clipboard.writeText(payload);
+          document.getElementById("tip").style.display="block";
+          setTimeout(()=>{document.getElementById("tip").style.display="none"},3000)
+        }
+        recalc();
+        </script>
+        '''
+
         html_code = html_tpl.replace("__GT__", gt_val)
         html_code = html_code.replace("__ROWS__", json_rows)
         st.components.v1.html(html_code, height=600, scrolling=True)
