@@ -1273,12 +1273,14 @@ else:
             base_total_budget = total_sales * base_global_t / 100
             base_old_budget = base_total_budget - sum_new_ad
 
-            # ========== 计算模拟后汇总指标 ==========
-            # 空值兜底，防止str.contains报错
-            df_res["商品流量标签"] = df_res["商品流量标签"].fillna("")
-            sum_edit_old_spend = df_res[~df_res["商品流量标签"].str.contains("新品")]["edit_spend"].sum()
+            # ========== 【重点修改！！不再用商品流量标签筛选，改用edit_tacos为空判断新品】 ==========
+            # edit_tacos为空 = 新品
+            df_res["is_new_flag"] = df_res["edit_tacos"].isna()
+            sum_edit_old_spend = df_res[~df_res["is_new_flag"]]["edit_spend"].sum()
+
             sim_total_budget = sum_edit_old_spend + sum_new_ad
             sim_global_tacos = sim_total_budget / total_sales * 100 if total_sales > 0 else 0
+
 
             # 构建2行5列布局
             st.markdown("##### 基准参数")
