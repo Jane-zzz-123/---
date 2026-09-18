@@ -1244,10 +1244,11 @@ else:
                 payload = json.loads(json_input.strip())
                 df_res = pd.DataFrame(payload["rows"])
 
-                # ========= Python侧计算衍生列（新增，解决KeyError核心） =========
+                # ========= Python侧计算衍生列 =========
                 df_res["base_spend"] = df_res["baseSpend"]
                 df_res["base_tacos"] = df_res["baseTacos"]
                 df_res["edit_tacos"] = df_res["editTacos"]
+
 
                 # 计算修改后广告花费
                 def calc_edit_spend(row):
@@ -1255,10 +1256,16 @@ else:
                         return row["base_spend"]
                     sales = float(row["销售额"])
                     et = float(row["edit_tacos"])
-                    return sales * et / 100
+                    return round(sales * et / 100, 2)  # 【改动点：计算时直接round2】
+
+
                 df_res["edit_spend"] = df_res.apply(calc_edit_spend, axis=1)
-                # 花费差值 = 修改 - 基准
-                df_res["diff_spend"] = df_res["edit_spend"] - df_res["base_spend"]
+                # 花费差值 = 修改 - 基准，计算直接round2
+                df_res["diff_spend"] = (df_res["edit_spend"] - df_res["base_spend"]).round(2)
+
+                # 【新增：全表全部数值列加载后立刻round2，源头干掉长小数】
+                numeric_cols = df_res.select_dtypes(include=["float", "int"]).columns
+                df_res[numeric_cols] = df_res[numeric_cols].round(2)
 
                 st.session_state.sim_df_result = df_res
                 st.session_state.sim_summary = {
@@ -1267,7 +1274,7 @@ else:
                     "sum_new_ad": payload["sum_new_ad"]
                 }
                 st.success("✅解析成功！上方编辑表格保留，下方展示模拟结果，可继续修改TACOS重新测算")
-                st.rerun() # 新增自动刷新，解决解析成功但不渲染表格
+                st.rerun()
             except Exception as e:
                 st.error(f"解析失败：{e}")
 
