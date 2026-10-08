@@ -920,7 +920,7 @@ df_all_item = df_single_item.sort_values("广告花费", ascending=False)
 
 # 展示字段（新增CTR/CPC/CVR，按流量→成本→转化→投产逻辑排序）
 item_show_cols = [
-    "MSKU","品名","产品类型", "开售时间",
+    "MSKU","品名","产品类型","分层", "开售时间",
     "展示", "点击", "CTR", "CPC", "CVR",
     "广告花费", "广告销售额", "销售额",
     "单品ACOS", "单品TACOS", "广告订单量"
@@ -1078,7 +1078,7 @@ else:
         df_html["单品当前TACOS"] = df_html.apply(
             lambda r: round(r["广告花费"]/r["销售额"]*100,2) if r["销售额"]>0 else 0, axis=1
         )
-        json_rows = df_html[["MSKU","品名","产品类型","商品流量标签","销售额","单品当前TACOS","广告花费"]].to_json(orient="records", force_ascii=False)
+        json_rows = df_html[["MSKU","品名","产品类型","分层","商品流量标签","销售额","单品当前TACOS","广告花费"]].to_json(orient="records", force_ascii=False)
         st.session_state.html_json_rows = json_rows
         st.session_state.html_global_t = str(global_t)
 
@@ -1103,7 +1103,7 @@ else:
         <table border="1" cellpadding="4" cellspacing="0" style="width:100%;border-collapse:collapse;">
         <thead>
         <tr style="background:#e5e6eb;">
-        <th>MSKU</th><th>品名</th><th>产品类型</th><th>商品流量标签</th>
+        <th>MSKU</th><th>品名</th><th>产品类型</th><th>分层</th><th>商品流量标签</th>
         <th>销售额</th><th>当前实际TACOS(%)</th><th>当前实际广告花费</th>
         <th>单品目标TACOS(%)<br/>【基准只读】</th>
         <th>单品目标TACOS广告花费<br/>【基准只读】</th>
@@ -1181,6 +1181,7 @@ else:
         <td>${row.MSKU||""}</td>
         <td>${(row.品名||"").replace(/[<>]/g,"")}</td>
         <td>${row.产品类型||""}</td>
+        <td>${row.分层||""}</td>
         <td>${row.商品流量标签||""}</td>
         <td>$${sales.toFixed(2)}</td>
         <td>${curTacos.toFixed(2)}%</td>
@@ -1356,7 +1357,7 @@ else:
                     format_dict[col] = "{:.2f}"
 
             show_cols = [
-                "MSKU", "品名", "产品类型", "商品流量标签",
+                "MSKU", "品名", "产品类型","分层", "商品流量标签",
                 "销售额", "当前实际TACOS(%)", "当前实际广告花费",
                 "单品目标TACOS(%)【基准只读】", "单品目标TACOS广告花费【基准只读】",
                 "修改的TACOS(%)【可编辑】", "修改TACOS的广告花费",
