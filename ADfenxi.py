@@ -28,13 +28,37 @@ with st.sidebar:
     )
 GLOBAL_TARGET_TACOS = st.session_state.global_target_tacos_pct / 100
 
-
-# -------------------------- 缓存加载原始数据 --------------------------
-@st.cache_data
+# -------------------------- 缓存加载原始数据【已修复】 --------------------------
+@st.cache_data(show_spinner="🔄正在拉取远程数据源...")
 def load_raw_data():
     url = "https://github.com/Jane-zzz-123/---/raw/main/ADdata_all.xlsx"
-    resp = requests.get(url)
-    df = pd.read_excel(BytesIO(resp.content), sheet_name="源数据")
+    # 增加请求头，解决GitHub防盗链403拒绝访问
+    headers = {
+        "User‑Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    resp = requests.get(url, headers=headers)
+
+    # 判断http下载是否成功
+    if resp.status_code != 200:
+        st.error(f"❌远程文件下载失败！HTTP状态码：{resp.status_code}")
+        st.stop()
+
+    try:
+        df = pd.read_excel(BytesIO(resp.content), sheet_name="源数据")
+    except Exception as e:
+        st.error(f"❌解析Excel失败：{str(e)}")
+        st.stop()
+
+    # 关键：清洗所有列名首尾空格、隐形空白字符
+    df.columns = [c.strip() for c in df.columns]
+
+    # 【校验全部必填字段，含新增分层】
+    must_cols = ["店铺", "时间", "产品类型", "分层"]
+    missing_cols = [c for c in must_cols if c not in df.columns]
+    if missing_cols:
+        st.error(f"❌Excel缺失必填字段：{missing_cols}\n请确认GitHub上ADdata_all.xlsx已更新！")
+        st.write("当前读取全部列名：", list(df.columns))
+        st.stop()
 
     # 标准化时间
     df["时间"] = pd.to_datetime(df["时间"])
@@ -53,13 +77,11 @@ def load_raw_data():
 
     # 上架时间转换
     df["开售时间"] = pd.to_datetime(df["开售时间"], errors="coerce")
-    # 校验产品类型是否存在，不存在抛提示
-    if "产品类型" not in df.columns:
-        st.error("❌ 远程Excel未包含【产品类型】字段，请先上传更新后的文件到GitHub！")
+
     return df
 
-
 df_raw = load_raw_data()
+
 
 # ===================== 页面顶部筛选区：仅2个单选控件【店铺、单月年月】 =====================
 st.markdown("### 🔍 数据筛选条件（仅单月数据）")
@@ -126,7 +148,7 @@ with st.expander("📖 全部指标释义 & 计算公式（点击展开查看）
 ### 补充说明
 - 环比差值：当月指标 − 上月同期指标
 - 环比百分比：(当月 − 上月) ÷ 上月绝对值，正数上涨（红色），负数下降（绿色）
-- 新品判定：MSKU上架≤60天=新品；无开售时间/上架超60天=老品
+- 新品判定：MSKU上架≤90天=新品；无开售时间/上架超90天=老品
 """)
 st.divider()
 
@@ -807,13 +829,13 @@ with t1:
     fig_type_spend = go.Figure()
     # 【重点修改】key和Excel完整标签一字不差
     color_map = {
-        "新品 (开售天数小于等于60)": "#ff7f0e",
-        "老品 (开售天数大于60天)": "#2ca02c",
+        "新品 (开售天数小于等于90)": "#ff7f0e",
+        "老品 (开售天数大于90天)": "#2ca02c",
         "新品未出单": "#d62728"
     }
     type_list = [
-        "新品 (开售天数小于等于60)",
-        "老品 (开售天数大于60天)",
+        "新品 (开售天数小于等于90)",
+        "老品 (开售天数大于90天)",
         "新品未出单"
     ]
 
@@ -920,7 +942,7 @@ df_all_item = df_single_item.sort_values("广告花费", ascending=False)
 
 # 展示字段（新增CTR/CPC/CVR，按流量→成本→转化→投产逻辑排序）
 item_show_cols = [
-    "MSKU","品名","产品类型", "开售时间",
+    "MSKU","品名","产品类型", "分层", "开售时间",
     "展示", "点击", "CTR", "CPC", "CVR",
     "广告花费", "广告销售额", "销售额",
     "单品ACOS", "单品TACOS", "广告订单量"
@@ -964,8 +986,8 @@ df_valid = df_all_item.dropna(subset=["单品TACOS"])
 # 初始化统计字典
 stat_result = {}
 type_name_list = [
-    "新品 (开售天数小于等于60)",
-    "老品 (开售天数大于60天)",
+    "新品 (开售天数小于等于90)",
+    "老品 (开售天数大于90天)",
     "新品未出单"
 ]
 
@@ -1078,7 +1100,7 @@ else:
         df_html["单品当前TACOS"] = df_html.apply(
             lambda r: round(r["广告花费"]/r["销售额"]*100,2) if r["销售额"]>0 else 0, axis=1
         )
-        json_rows = df_html[["MSKU","品名","产品类型","商品流量标签","销售额","单品当前TACOS","广告花费"]].to_json(orient="records", force_ascii=False)
+        json_rows = df_html[["MSKU","品名","产品类型","分层","商品流量标签","销售额","单品当前TACOS","广告花费"]].to_json(orient="records", force_ascii=False)
         st.session_state.html_json_rows = json_rows
         st.session_state.html_global_t = str(global_t)
 
@@ -1103,7 +1125,7 @@ else:
         <table border="1" cellpadding="4" cellspacing="0" style="width:100%;border-collapse:collapse;">
         <thead>
         <tr style="background:#e5e6eb;">
-        <th>MSKU</th><th>品名</th><th>产品类型</th><th>商品流量标签</th>
+        <th>MSKU</th><th>品名</th><th>产品类型</th><th>分层</th><th>商品流量标签</th>
         <th>销售额</th><th>当前实际TACOS(%)</th><th>当前实际广告花费</th>
         <th>单品目标TACOS(%)<br/>【基准只读】</th>
         <th>单品目标TACOS广告花费<br/>【基准只读】</th>
@@ -1181,6 +1203,7 @@ else:
         <td>${row.MSKU||""}</td>
         <td>${(row.品名||"").replace(/[<>]/g,"")}</td>
         <td>${row.产品类型||""}</td>
+        <td>${row.分层||""}</td>
         <td>${row.商品流量标签||""}</td>
         <td>$${sales.toFixed(2)}</td>
         <td>${curTacos.toFixed(2)}%</td>
@@ -1356,7 +1379,7 @@ else:
                     format_dict[col] = "{:.2f}"
 
             show_cols = [
-                "MSKU", "品名", "产品类型", "商品流量标签",
+                "MSKU", "品名", "产品类型", "分层","商品流量标签",
                 "销售额", "当前实际TACOS(%)", "当前实际广告花费",
                 "单品目标TACOS(%)【基准只读】", "单品目标TACOS广告花费【基准只读】",
                 "修改的TACOS(%)【可编辑】", "修改TACOS的广告花费",
