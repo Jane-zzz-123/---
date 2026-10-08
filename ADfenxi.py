@@ -33,15 +33,44 @@ GLOBAL_TARGET_TACOS = st.session_state.global_target_tacos_pct / 100
 @st.cache_data
 def load_raw_data():
     url = "https://github.com/Jane-zzz-123/---/raw/main/ADdata_all.xlsx"
-    resp = requests.get(url)
-    df = pd.read_excel(BytesIO(resp.content), sheet_name="源数据")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    try:
+        resp = requests.get(url, headers=headers, timeout=30)
+    except Exception as e:
+        st.error(f"❌网络请求失败：{str(e)}")
+        st.stop()
 
-    # 标准化时间
+    # 判断远程文件是否正常返回
+    if resp.status_code != 200:
+        st.error(f"❌远程文件访问失败，HTTP状态码：{resp.status_code}")
+        st.warning("提示：Streamlit Cloud访问GitHub raw容易触发防盗链403拦截")
+        st.stop()
+
+    try:
+        df = pd.read_excel(BytesIO(resp.content), sheet_name="源数据")
+    except Exception as e:
+        st.error(f"❌Excel文件解析失败：{str(e)}")
+        st.stop()
+
+    # 关键：清洗所有列名，去除首尾空格、不可见空白字符
+    df.columns = [c.strip() for c in df.columns]
+
+    # 完整校验全部必填字段（包含新增的分层）
+    must_cols = ["店铺", "时间", "产品类型", "分层"]
+    missing_cols = [col for col in must_cols if col not in df.columns]
+    if missing_cols:
+        st.error(f"❌远程Excel缺失必填字段：{missing_cols}，请确认GitHub已上传最新版ADdata_all.xlsx")
+        st.write("当前读取到的全部列名：", list(df.columns))
+        st.stop()
+
+    # 标准化时间字段
     df["时间"] = pd.to_datetime(df["时间"])
     df["年月"] = df["时间"].dt.to_period("M").astype(str)
     df["年月日期"] = pd.to_datetime(df["年月"] + "-01")
 
-    # 数值清洗
+    # 数值字段清洗
     num_cols = [
         "展示", "点击", "广告花费", "SP广告费", "SB广告费", "SBV广告费",
         "广告销售额", "SP广告销售额", "SB广告销售额", "SBV广告销售额",
@@ -53,10 +82,9 @@ def load_raw_data():
 
     # 上架时间转换
     df["开售时间"] = pd.to_datetime(df["开售时间"], errors="coerce")
-    # 校验产品类型是否存在，不存在抛提示
-    if "产品类型" not in df.columns:
-        st.error("❌ 远程Excel未包含【产品类型】字段，请先上传更新后的文件到GitHub！")
+
     return df
+
 
 
 df_raw = load_raw_data()
