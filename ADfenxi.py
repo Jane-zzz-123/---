@@ -932,11 +932,15 @@ df_table = df_all_item[item_show_cols].copy()
 def highlight_high_tacos(val):
     if pd.isna(val):
         return ""
+    # 必须判断是不是数字，不是数字直接返回黑色
+    if not isinstance(val, (int, float)):
+        return "color: black"
     if val > shop_total_tacos:
         color = "red"
     else:
         color = "black"
     return f"color: {color}"
+
 
 # 表格格式化：
 # 1. 百分比列：CTR、CVR、ACOS、TACOS
