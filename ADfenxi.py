@@ -33,44 +33,15 @@ GLOBAL_TARGET_TACOS = st.session_state.global_target_tacos_pct / 100
 @st.cache_data
 def load_raw_data():
     url = "https://github.com/Jane-zzz-123/---/raw/main/ADdata_all.xlsx"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-    try:
-        resp = requests.get(url, headers=headers, timeout=30)
-    except Exception as e:
-        st.error(f"❌网络请求失败：{str(e)}")
-        st.stop()
+    resp = requests.get(url)
+    df = pd.read_excel(BytesIO(resp.content), sheet_name="源数据")
 
-    # 判断远程文件是否正常返回
-    if resp.status_code != 200:
-        st.error(f"❌远程文件访问失败，HTTP状态码：{resp.status_code}")
-        st.warning("提示：Streamlit Cloud访问GitHub raw容易触发防盗链403拦截")
-        st.stop()
-
-    try:
-        df = pd.read_excel(BytesIO(resp.content), sheet_name="源数据")
-    except Exception as e:
-        st.error(f"❌Excel文件解析失败：{str(e)}")
-        st.stop()
-
-    # 关键：清洗所有列名，去除首尾空格、不可见空白字符
-    df.columns = [c.strip() for c in df.columns]
-
-    # 完整校验全部必填字段（包含新增的分层）
-    must_cols = ["店铺", "时间", "产品类型", "分层"]
-    missing_cols = [col for col in must_cols if col not in df.columns]
-    if missing_cols:
-        st.error(f"❌远程Excel缺失必填字段：{missing_cols}，请确认GitHub已上传最新版ADdata_all.xlsx")
-        st.write("当前读取到的全部列名：", list(df.columns))
-        st.stop()
-
-    # 标准化时间字段
+    # 标准化时间
     df["时间"] = pd.to_datetime(df["时间"])
     df["年月"] = df["时间"].dt.to_period("M").astype(str)
     df["年月日期"] = pd.to_datetime(df["年月"] + "-01")
 
-    # 数值字段清洗
+    # 数值清洗
     num_cols = [
         "展示", "点击", "广告花费", "SP广告费", "SB广告费", "SBV广告费",
         "广告销售额", "SP广告销售额", "SB广告销售额", "SBV广告销售额",
@@ -82,13 +53,13 @@ def load_raw_data():
 
     # 上架时间转换
     df["开售时间"] = pd.to_datetime(df["开售时间"], errors="coerce")
-
+    # 校验产品类型是否存在，不存在抛提示
+    if "产品类型" not in df.columns:
+        st.error("❌ 远程Excel未包含【产品类型】字段，请先上传更新后的文件到GitHub！")
     return df
 
 
-
 df_raw = load_raw_data()
-
 
 # ===================== 页面顶部筛选区：仅2个单选控件【店铺、单月年月】 =====================
 st.markdown("### 🔍 数据筛选条件（仅单月数据）")
@@ -949,7 +920,7 @@ df_all_item = df_single_item.sort_values("广告花费", ascending=False)
 
 # 展示字段（新增CTR/CPC/CVR，按流量→成本→转化→投产逻辑排序）
 item_show_cols = [
-    "MSKU","品名","产品类型", "分层", "开售时间",
+    "MSKU","品名","产品类型", "开售时间",
     "展示", "点击", "CTR", "CPC", "CVR",
     "广告花费", "广告销售额", "销售额",
     "单品ACOS", "单品TACOS", "广告订单量"
@@ -960,15 +931,11 @@ df_table = df_all_item[item_show_cols].copy()
 def highlight_high_tacos(val):
     if pd.isna(val):
         return ""
-    # 必须判断是不是数字，不是数字直接返回黑色
-    if not isinstance(val, (int, float)):
-        return "color: black"
     if val > shop_total_tacos:
         color = "red"
     else:
         color = "black"
     return f"color: {color}"
-
 
 # 表格格式化：
 # 1. 百分比列：CTR、CVR、ACOS、TACOS
@@ -1111,7 +1078,7 @@ else:
         df_html["单品当前TACOS"] = df_html.apply(
             lambda r: round(r["广告花费"]/r["销售额"]*100,2) if r["销售额"]>0 else 0, axis=1
         )
-        json_rows = df_html[["MSKU","品名","产品类型","分层","商品流量标签","销售额","单品当前TACOS","广告花费"]].to_json(orient="records", force_ascii=False)
+        json_rows = df_html[["MSKU","品名","产品类型","商品流量标签","销售额","单品当前TACOS","广告花费"]].to_json(orient="records", force_ascii=False)
         st.session_state.html_json_rows = json_rows
         st.session_state.html_global_t = str(global_t)
 
@@ -1136,7 +1103,7 @@ else:
         <table border="1" cellpadding="4" cellspacing="0" style="width:100%;border-collapse:collapse;">
         <thead>
         <tr style="background:#e5e6eb;">
-        <th>MSKU</th><th>品名</th><th>产品类型</th><th>分层</th><th>商品流量标签</th>
+        <th>MSKU</th><th>品名</th><th>产品类型</th><th>商品流量标签</th>
         <th>销售额</th><th>当前实际TACOS(%)</th><th>当前实际广告花费</th>
         <th>单品目标TACOS(%)<br/>【基准只读】</th>
         <th>单品目标TACOS广告花费<br/>【基准只读】</th>
@@ -1214,7 +1181,6 @@ else:
         <td>${row.MSKU||""}</td>
         <td>${(row.品名||"").replace(/[<>]/g,"")}</td>
         <td>${row.产品类型||""}</td>
-        <td>${row.分层||""}</td>
         <td>${row.商品流量标签||""}</td>
         <td>$${sales.toFixed(2)}</td>
         <td>${curTacos.toFixed(2)}%</td>
@@ -1390,7 +1356,7 @@ else:
                     format_dict[col] = "{:.2f}"
 
             show_cols = [
-                "MSKU", "品名", "产品类型", "分层","商品流量标签",
+                "MSKU", "品名", "产品类型", "商品流量标签",
                 "销售额", "当前实际TACOS(%)", "当前实际广告花费",
                 "单品目标TACOS(%)【基准只读】", "单品目标TACOS广告花费【基准只读】",
                 "修改的TACOS(%)【可编辑】", "修改TACOS的广告花费",
