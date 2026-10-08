@@ -28,37 +28,13 @@ with st.sidebar:
     )
 GLOBAL_TARGET_TACOS = st.session_state.global_target_tacos_pct / 100
 
-# -------------------------- 缓存加载原始数据【已修复】 --------------------------
-@st.cache_data(show_spinner="🔄正在拉取远程数据源...")
+
+# -------------------------- 缓存加载原始数据 --------------------------
+@st.cache_data
 def load_raw_data():
     url = "https://github.com/Jane-zzz-123/---/raw/main/ADdata_all.xlsx"
-    # 增加请求头，解决GitHub防盗链403拒绝访问
-    headers = {
-        "User‑Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-    resp = requests.get(url, headers=headers)
-
-    # 判断http下载是否成功
-    if resp.status_code != 200:
-        st.error(f"❌远程文件下载失败！HTTP状态码：{resp.status_code}")
-        st.stop()
-
-    try:
-        df = pd.read_excel(BytesIO(resp.content), sheet_name="源数据")
-    except Exception as e:
-        st.error(f"❌解析Excel失败：{str(e)}")
-        st.stop()
-
-    # 关键：清洗所有列名首尾空格、隐形空白字符
-    df.columns = [c.strip() for c in df.columns]
-
-    # 【校验全部必填字段，含新增分层】
-    must_cols = ["店铺", "时间", "产品类型", "分层"]
-    missing_cols = [c for c in must_cols if c not in df.columns]
-    if missing_cols:
-        st.error(f"❌Excel缺失必填字段：{missing_cols}\n请确认GitHub上ADdata_all.xlsx已更新！")
-        st.write("当前读取全部列名：", list(df.columns))
-        st.stop()
+    resp = requests.get(url)
+    df = pd.read_excel(BytesIO(resp.content), sheet_name="源数据")
 
     # 标准化时间
     df["时间"] = pd.to_datetime(df["时间"])
@@ -77,8 +53,11 @@ def load_raw_data():
 
     # 上架时间转换
     df["开售时间"] = pd.to_datetime(df["开售时间"], errors="coerce")
-
+    # 校验产品类型是否存在，不存在抛提示
+    if "产品类型" not in df.columns:
+        st.error("❌ 远程Excel未包含【产品类型】字段，请先上传更新后的文件到GitHub！")
     return df
+
 
 df_raw = load_raw_data()
 
