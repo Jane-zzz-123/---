@@ -1270,19 +1270,12 @@ else:
                 payload = json.loads(json_input.strip())
                 df_res = pd.DataFrame(payload["rows"])
 
-                # ========= Python侧计算衍生列 =========
+                # ========= Python直接复用JS回传结果，禁止二次重算花费 =========
                 df_res["base_spend"] = df_res["baseSpend"]
                 df_res["base_tacos"] = df_res["baseTacos"]
                 df_res["edit_tacos"] = df_res["editTacos"]
+                df_res["edit_spend"] = df_res["editSpend"]  # 使用JS已经计算完成的值
 
-                def calc_edit_spend(row):
-                    if pd.isna(row["edit_tacos"]):
-                        return row["base_spend"]
-                    sales = float(row["销售额"])
-                    et = float(row["edit_tacos"])
-                    return round(sales * et / 100, 2)
-
-                df_res["edit_spend"] = df_res.apply(calc_edit_spend, axis=1)
                 df_res["diff_spend"] = (df_res["edit_spend"] - df_res["base_spend"]).round(2)
 
                 numeric_cols = df_res.select_dtypes(include=["float", "int"]).columns
@@ -1367,7 +1360,7 @@ else:
                     format_dict[col] = "{:.2f}"
 
             show_cols = [
-                "MSKU", "品名", "产品类型","分层", "商品流量标签",
+                "MSKU", "品名", "产品类型", "分层", "商品流量标签",
                 "销售额", "当前实际TACOS(%)", "当前实际广告花费",
                 "单品目标TACOS(%)【基准只读】", "单品目标TACOS广告花费【基准只读】",
                 "修改的TACOS(%)【可编辑】", "修改TACOS的广告花费",
@@ -1375,6 +1368,7 @@ else:
             ]
             show_cols = [c for c in show_cols if c in df_show.columns]
             df_show = df_show[show_cols].sort_values("销售额", ascending=False)
+
 
             def color_diff(s):
                 colors = []
@@ -1389,6 +1383,7 @@ else:
                         colors.append("")
                 return colors
 
+
             if "花费差值(修改-基准)【多花为正】" in df_show.columns:
                 styled_df = df_show.style.format(format_dict).apply(color_diff,
                                                                     subset=["花费差值(修改-基准)【多花为正】"])
@@ -1396,7 +1391,8 @@ else:
                 styled_df = df_show.style
 
             st.dataframe(styled_df, use_container_width=True, height=450)
-    st.divider()
+        st.divider()
+
 
 
 
