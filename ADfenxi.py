@@ -1132,7 +1132,7 @@ else:
         const gT = Number("__GT__");
         const totalSales = rows.reduce((s,r)=>s+Number(r["销售额"]),0);
         const tb = document.getElementById("tb");
-
+        
         let sumNewAd = 0;
         let oldRows = [];
         rows.forEach((row)=>{
@@ -1148,16 +1148,15 @@ else:
         const totalAllow = totalSales * gT / 100;
         const oldBudgetPool = Math.max(0, totalAllow - sumNewAd);
         const sumOldSales = oldRows.reduce((s, r)=> s + Number(r["销售额"]),0);
-
+        
         oldRows.forEach(r=>{
             r.baseSpend = oldBudgetPool * (Number(r["销售额"]) / sumOldSales);
             r.baseTacos = (Number(r["销售额"]) > 0) ? (r.baseSpend / Number(r["销售额"]) *100) : 0;
             //初始化：编辑侧完全复制基准
             r.editTacos = r.baseTacos;
             r.editSpend = r.baseSpend;
-            r.isManuallyEdited = false; //标记该行是否被用户手动修改输入框
         })
-
+        
         function recalc(){
           tb.innerHTML = "";
           let sumEditTotal = sumNewAd;
@@ -1174,31 +1173,32 @@ else:
             let editTacos = row.editTacos;
             let editSpend = 0;
             let diff = 0;
-
+        
             if(isNew){
                 editTacos = null;
                 editSpend = baseSpend;
                 diff = 0;
             }else{
                 editTacos = Number(row.editTacos);
-                if(row.isManuallyEdited){
-                    // 用户手动修改输入框，使用单品公式
+                // 核心：直接对比TACOS，不需要标记
+                if(Math.abs(editTacos - row.baseTacos) > 0.001){
+                    // TACOS改动，单品公式计算
                     editSpend = sales * editTacos / 100;
                 }else{
-                    // 用户没有修改，直接复用基准花费，保证完全相等，diff严格0
+                    // TACOS无改动，复用基准花费
                     editSpend = row.baseSpend;
                 }
                 diff = editSpend - baseSpend;
-
+        
                 editSpend = Math.round(editSpend *100)/100;
                 baseSpend = Math.round(baseSpend *100)/100;
                 diff = Math.round(diff *100)/100;
-
+        
                 sumEditTotal += editSpend;
                 sumBaseOld += baseSpend;
                 sumEditOld += editSpend;
             }
-
+        
             let diffColor = "#000000";
             if(diff > 1) diffColor = "#c41e3a";
             if(diff < -1) diffColor = "#00875a";
@@ -1227,13 +1227,12 @@ else:
           document.getElementById("editTotalSpend").innerText = sumEditTotal.toFixed(2);
           document.getElementById("editWholeTacos").innerText = editWholeTacos.toFixed(2)+"%";
         }
-
+        
         function updateTacos(idx,val){
           rows[idx].editTacos = Number(val);
-          rows[idx].isManuallyEdited = true; //标记：用户手动改动
           recalc();
         }
-
+        
         function roundObj2(obj) {
             const newObj = {...obj};
             for(let k in newObj) {
@@ -1244,7 +1243,7 @@ else:
             }
             return newObj;
         }
-
+        
         async function saveData(){
           const payloadRaw = {
             global_t:gT,
@@ -1258,6 +1257,7 @@ else:
           setTimeout(()=>{document.getElementById("tip").style.display="none"},3000)
         }
         recalc();
+
         </script>
         '''
 
