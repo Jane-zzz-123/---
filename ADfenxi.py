@@ -1054,7 +1054,6 @@ else:
     df_8020_sort["商品流量标签"] = df_8020_sort.apply(get_flow_tag, axis=1)
 
     st.subheader("⚙️ 第一步：设置全局目标TACOS")
-    # ============【新增简洁公式说明】============
     st.markdown("""
 > 📘**模拟规则（销售额固定，新品预算固定不参与分配）**
 > 1. 老品池基准TACOS = (全店总销售额 ×全局目标TACOS −新品广告费) ÷老品总销售额（所有老品基准统一）
@@ -1149,17 +1148,22 @@ else:
         const totalAllow = totalSales * gT / 100;
         const oldBudgetPool = Math.max(0, totalAllow - sumNewAd);
         const sumOldSales = oldRows.reduce((s, r)=> s + Number(r["销售额"]),0);
+
+        // 计算老品池统一基准TACOS
+        const poolTacos = sumOldSales > 0 ? (oldBudgetPool / sumOldSales)*100 : 0;
         oldRows.forEach(r=>{
-            r.baseSpend = oldBudgetPool * (Number(r["销售额"]) / sumOldSales);
-            r.baseTacos = (Number(r["销售额"]) > 0) ? (r.baseSpend / Number(r["销售额"]) *100) : 0;
+            const sales = Number(r["销售额"]);
+            r.baseTacos = poolTacos;
+            r.baseSpend = sales * poolTacos / 100;
             r.editTacos = r.baseTacos;
+            r.editSpend = r.baseSpend;
         })
 
         function recalc(){
           tb.innerHTML = "";
           let sumEditTotal = sumNewAd;
           let sumBaseOld = 0;
-          let sumEditOld = 0; //新增：老品模拟花费汇总
+          let sumEditOld = 0;
           rows.forEach((row,idx)=>{
             const tr = document.createElement("tr");
             const isNew = row["商品流量标签"].includes("新品");
@@ -1171,6 +1175,7 @@ else:
             let editTacos = row.editTacos;
             let editSpend = 0;
             let diff = 0;
+
             if(isNew){
                 editTacos = null;
                 editSpend = baseSpend;
@@ -1179,18 +1184,21 @@ else:
                 editTacos = Number(row.editTacos);
                 editSpend = sales * editTacos / 100;
                 diff = editSpend - baseSpend;
-                //================【关键修改：JS端差值、花费四舍五入保留2位，消除浮点噪声】================
+
                 editSpend = Math.round(editSpend *100)/100;
                 baseSpend = Math.round(baseSpend *100)/100;
                 diff = Math.round(diff *100)/100;
 
+                row.editSpend = editSpend;
+
                 sumEditTotal += editSpend;
                 sumBaseOld += baseSpend;
-                sumEditOld += editSpend; //老品累加
+                sumEditOld += editSpend;
             }
+
             let diffColor = "#000000";
-            if(diff > 1) diffColor = "#c41e3a";   // 多花，红色
-            if(diff < -1) diffColor = "#00875a"; // 少花，绿色
+            if(diff > 1) diffColor = "#c41e3a";
+            if(diff < -1) diffColor = "#00875a";
             tr.innerHTML = `
         <td>${row.MSKU||""}</td>
         <td>${(row.品名||"").replace(/[<>]/g,"")}</td>
@@ -1212,15 +1220,16 @@ else:
           document.getElementById("sumTotalAllow").innerText = totalAllow.toFixed(2);
           document.getElementById("sumOldAllow").innerText = oldBudgetPool.toFixed(2);
           document.getElementById("baseOldTotal").innerText = sumBaseOld.toFixed(2);
-          document.getElementById("editOldTotal").innerText = sumEditOld.toFixed(2); //老品模拟总额
+          document.getElementById("editOldTotal").innerText = sumEditOld.toFixed(2);
           document.getElementById("editTotalSpend").innerText = sumEditTotal.toFixed(2);
           document.getElementById("editWholeTacos").innerText = editWholeTacos.toFixed(2)+"%";
         }
+
         function updateTacos(idx,val){
           rows[idx].editTacos = Number(val);
           recalc();
         }
-        // ========== 【修改这里！复制JSON前，所有数值round2位】 ==========
+
         function roundObj2(obj) {
             const newObj = {...obj};
             for(let k in newObj) {
@@ -1231,6 +1240,7 @@ else:
             }
             return newObj;
         }
+
         async function saveData(){
           const payloadRaw = {
             global_t:gT,
@@ -1248,7 +1258,7 @@ else:
         '''
 
         html_code = html_tpl.replace("__GT__", gt_val)
-        html_code = html_code.replace("__ROWS__", json_rows)
+        html_code = html_tpl.replace("__ROWS__", json_rows)
         st.components.v1.html(html_code, height=600, scrolling=True)
 
         st.info("👉调整完单品TACOS，点击【回传结果到看板（一键复制JSON）】，复制完成后粘贴到下方输入框，再点【解析回传结果】")
@@ -1264,19 +1274,16 @@ else:
                 df_res["base_tacos"] = df_res["baseTacos"]
                 df_res["edit_tacos"] = df_res["editTacos"]
 
-                # 计算修改后广告花费
                 def calc_edit_spend(row):
                     if pd.isna(row["edit_tacos"]):
                         return row["base_spend"]
                     sales = float(row["销售额"])
                     et = float(row["edit_tacos"])
-                    return round(sales * et / 100, 2)  # 【改动点：计算时直接round2】
+                    return round(sales * et / 100, 2)
 
                 df_res["edit_spend"] = df_res.apply(calc_edit_spend, axis=1)
-                # 花费差值 = 修改 - 基准，计算直接round2
                 df_res["diff_spend"] = (df_res["edit_spend"] - df_res["base_spend"]).round(2)
 
-                # 【新增：全表全部数值列加载后立刻round2，源头干掉长小数】
                 numeric_cols = df_res.select_dtypes(include=["float", "int"]).columns
                 df_res[numeric_cols] = df_res[numeric_cols].round(2)
 
@@ -1291,29 +1298,24 @@ else:
             except Exception as e:
                 st.error(f"解析失败：{e}")
 
-        # ===================== 【修正缩进！】解析结果展示模块，不再嵌套在html判断里面 =====================
         if st.session_state.sim_df_result is not None:
             st.divider()
             st.subheader("📊 本次TACOS模拟回传结果")
             sm = st.session_state.sim_summary
             df_res = st.session_state.sim_df_result.copy()
 
-            # ========== 计算基准汇总指标 ==========
             total_sales = sm["total_sales"]
             sum_new_ad = sm["sum_new_ad"]
             base_global_t = sm["global_t"]
             base_total_budget = total_sales * base_global_t / 100
             base_old_budget = base_total_budget - sum_new_ad
 
-            # ========== 【重点修改！！不再用商品流量标签筛选，改用edit_tacos为空判断新品】 ==========
-            # edit_tacos为空 = 新品
             df_res["is_new_flag"] = df_res["edit_tacos"].isna()
             sum_edit_old_spend = df_res[~df_res["is_new_flag"]]["edit_spend"].sum()
 
             sim_total_budget = sum_edit_old_spend + sum_new_ad
             sim_global_tacos = sim_total_budget / total_sales * 100 if total_sales > 0 else 0
 
-            # 构建2行5列布局
             st.markdown("##### 基准参数")
             bc1, bc2, bc3, bc4, bc5 = st.columns(5)
             with bc1:
@@ -1342,10 +1344,8 @@ else:
                 st.metric("老品预算广告花费", f"${sum_edit_old_spend:,.2f}",
                           delta=f"{sum_edit_old_spend - base_old_budget:.2f}")
 
-            # ========== 下面表格代码 ==========
             df_show = st.session_state.sim_df_result.copy()
 
-            # ========== 按上方HTML列顺序重命名+排列 ==========
             df_show = df_show.rename(columns={
                 "单品当前TACOS": "当前实际TACOS(%)",
                 "base_tacos": "单品目标TACOS(%)【基准只读】",
@@ -1355,14 +1355,11 @@ else:
                 "diff_spend": "花费差值(修改-基准)【多花为正】",
                 "广告花费": "当前实际广告花费"
             })
-            # ========== 新增：全局提前round2位，解决大量尾零 ==========
-            # 自动识别数字列并保留2位小数
-            # 先转数值，round
+
             for col in df_show.columns:
                 df_show[col] = pd.to_numeric(df_show[col], errors='coerce').fillna(df_show[col])
             df_show = df_show.round(2)
 
-            # 定义：所有数字列统一格式化保留2位小数
             format_dict = {}
             for col in df_show.columns:
                 if pd.api.types.is_numeric_dtype(df_show[col]):
@@ -1375,11 +1372,9 @@ else:
                 "修改的TACOS(%)【可编辑】", "修改TACOS的广告花费",
                 "花费差值(修改-基准)【多花为正】"
             ]
-            # 容错：自动过滤不存在的列，防止列缺失报错
             show_cols = [c for c in show_cols if c in df_show.columns]
             df_show = df_show[show_cols].sort_values("销售额", ascending=False)
 
-            # ========== 条件格式：差值>1标红，<-1标绿 ==========
             def color_diff(s):
                 colors = []
                 for v in s:
@@ -1393,7 +1388,6 @@ else:
                         colors.append("")
                 return colors
 
-            # 只在列存在时才应用样式，防止报错
             if "花费差值(修改-基准)【多花为正】" in df_show.columns:
                 styled_df = df_show.style.format(format_dict).apply(color_diff,
                                                                     subset=["花费差值(修改-基准)【多花为正】"])
@@ -1402,6 +1396,7 @@ else:
 
             st.dataframe(styled_df, use_container_width=True, height=450)
     st.divider()
+
 
 
 
