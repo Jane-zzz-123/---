@@ -1149,7 +1149,7 @@ else:
         const oldBudgetPool = Math.max(0, totalAllow - sumNewAd);
         const sumOldSales = oldRows.reduce((s, r)=> s + Number(r["销售额"]),0);
 
-        // 计算老品池统一基准TACOS
+        // 老品池统一基准TACOS
         const poolTacos = sumOldSales > 0 ? (oldBudgetPool / sumOldSales)*100 : 0;
         oldRows.forEach(r=>{
             const sales = Number(r["销售额"]);
@@ -1257,8 +1257,9 @@ else:
         </script>
         '''
 
-        # ==========【修复这一行！！】==========
         html_code = html_tpl.replace("__GT__", gt_val).replace("__ROWS__", json_rows)
+        # 调试：打印前300字符，确认占位符被替换
+        # st.code(html_code[:300])
         st.components.v1.html(html_code, height=600, scrolling=True)
 
         st.info("👉调整完单品TACOS，点击【回传结果到看板（一键复制JSON）】，复制完成后粘贴到下方输入框，再点【解析回传结果】")
@@ -1396,6 +1397,7 @@ else:
 
             st.dataframe(styled_df, use_container_width=True, height=450)
     st.divider()
+
 
 
 
