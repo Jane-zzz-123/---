@@ -1257,8 +1257,8 @@ else:
         </script>
         '''
 
-        html_code = html_tpl.replace("__GT__", gt_val)
-        html_code = html_tpl.replace("__ROWS__", json_rows)
+        # ==========【修复这一行！！】==========
+        html_code = html_tpl.replace("__GT__", gt_val).replace("__ROWS__", json_rows)
         st.components.v1.html(html_code, height=600, scrolling=True)
 
         st.info("👉调整完单品TACOS，点击【回传结果到看板（一键复制JSON）】，复制完成后粘贴到下方输入框，再点【解析回传结果】")
@@ -1396,6 +1396,7 @@ else:
 
             st.dataframe(styled_df, use_container_width=True, height=450)
     st.divider()
+
 
 
 
