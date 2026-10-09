@@ -1054,6 +1054,15 @@ else:
     df_8020_sort["商品流量标签"] = df_8020_sort.apply(get_flow_tag, axis=1)
 
     st.subheader("⚙️ 第一步：设置全局目标TACOS")
+    # ============【新增简洁公式说明】============
+    st.markdown("""
+> 📘**模拟规则（销售额固定，新品预算固定不参与分配）**
+> 1. 老品池基准TACOS = (全店总销售额 ×全局目标TACOS −新品广告费) ÷老品总销售额（所有老品基准统一）
+> 2. 单品基准广告花费 = SKU销售额 ×老品池基准TACOS
+> 3. 修改后广告花费 = SKU销售额 ×手动输入的修改TACOS
+> 4. 花费差值 = 修改后广告花费 − 基准广告花费（多花为正）
+> 💡微小±0.01属于计算机浮点精度误差。
+""")
     col1, col2 = st.columns([4,1])
     with col1:
         global_t = st.number_input(
@@ -1170,6 +1179,11 @@ else:
                 editTacos = Number(row.editTacos);
                 editSpend = sales * editTacos / 100;
                 diff = editSpend - baseSpend;
+                //================【关键修改：JS端差值、花费四舍五入保留2位，消除浮点噪声】================
+                editSpend = Math.round(editSpend *100)/100;
+                baseSpend = Math.round(baseSpend *100)/100;
+                diff = Math.round(diff *100)/100;
+
                 sumEditTotal += editSpend;
                 sumBaseOld += baseSpend;
                 sumEditOld += editSpend; //老品累加
@@ -1250,7 +1264,6 @@ else:
                 df_res["base_tacos"] = df_res["baseTacos"]
                 df_res["edit_tacos"] = df_res["editTacos"]
 
-
                 # 计算修改后广告花费
                 def calc_edit_spend(row):
                     if pd.isna(row["edit_tacos"]):
@@ -1258,7 +1271,6 @@ else:
                     sales = float(row["销售额"])
                     et = float(row["edit_tacos"])
                     return round(sales * et / 100, 2)  # 【改动点：计算时直接round2】
-
 
                 df_res["edit_spend"] = df_res.apply(calc_edit_spend, axis=1)
                 # 花费差值 = 修改 - 基准，计算直接round2
@@ -1385,15 +1397,9 @@ else:
             if "花费差值(修改-基准)【多花为正】" in df_show.columns:
                 styled_df = df_show.style.format(format_dict).apply(color_diff,
                                                                     subset=["花费差值(修改-基准)【多花为正】"])
-
             else:
                 styled_df = df_show.style
 
             st.dataframe(styled_df, use_container_width=True, height=450)
     st.divider()
-
-
-
-
-
 
