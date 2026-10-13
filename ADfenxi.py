@@ -1015,10 +1015,9 @@ text_lines.append(f"""
 st.markdown("\n".join(text_lines))
 st.divider()
 
-# ===================== 八、自定义TACOS预算模拟（HTML前端实时计算，修改单元格不刷新） =====================
+# ===================== 八、自定义TACOS预算模拟（HTML前端实时计算，按历史广告花费占比分配老品预算） =====================
 st.markdown("## 📈 八、自定义TACOS预算模拟")
 shop_total_tacos = df_month_single["TACOS广告花费占比"].iloc[0]
-
 # ========== session状态存储 ==========
 if "sim_df_result" not in st.session_state:
     st.session_state.sim_df_result = None
@@ -1056,10 +1055,13 @@ else:
     st.subheader("⚙️ 第一步：设置全局目标TACOS")
     st.markdown("""
 > 📘**模拟规则（销售额固定，新品预算固定不参与分配）**
-> 1. 老品池基准TACOS = (全店总销售额 ×全局目标TACOS −新品广告费) ÷老品总销售额（所有老品基准统一）
-> 2. 单品基准广告花费 = SKU销售额 ×老品池基准TACOS
-> 3. 修改后广告花费 = SKU销售额 ×手动输入的修改TACOS
-> 4. 花费差值 = 修改后广告花费 − 基准广告花费（多花为正）
+> 1. 全店允许总广告花费 = 全店总销售额 ×全局目标TACOS
+> 2. 老品预算池 = max(0,全店允许总广告花费 −新品刚性广告费)
+> 3. **老品基准分配规则：按照【老品历史实际广告花费占老品总广告花费比例】分配老品预算池**
+>    - 单品基准广告花费 = 老品预算池 × (单品老品实际广告花费 ÷全部老品实际广告花费)
+>    - 单品基准TACOS = 单品基准广告花费 ÷SKU销售额 ×100，每个老品SKU基准TACOS各不相同
+> 4. 修改后广告花费 = SKU销售额 ×手动输入的修改TACOS
+> 5. 花费差值 = 修改后广告花费 − 基准广告花费（多花为正）
 > 💡微小±0.01属于计算机浮点精度误差。
 """)
     col1, col2 = st.columns([4,1])
@@ -1067,7 +1069,7 @@ else:
         global_t = st.number_input(
             "全局目标TACOS(%)", min_value=0.0, max_value=50.0,
             value=15.0, step=0.5,
-            help="全局目标TACOS，新品广告花费保持不变；基准预算：老品预算池按销售额比例分摊，作为对标基准。运营修改TACOS为独立测算，用于对比"
+            help="全局目标TACOS，新品广告花费保持不变；基准预算老品按历史广告花费占比分配。运营修改TACOS为独立测算，用于对比"
         )
     with col2:
         reset_sim = st.button("🔄 重置模拟", type="secondary")
@@ -1106,24 +1108,23 @@ else:
           <div><b>修改后模拟总花费(含新品)：</b>$<span id="editTotalSpend" style="color:#722ED1;font-weight:bold;">0</span></div>
           <div><b>修改后整体TACOS：</b><span id="editWholeTacos" style="color:#F53F3F;font-weight:bold;">0%</span></div>
         </div>
-
         <div style="max-height:400px;overflow:auto;">
         <table border="1" cellpadding="4" cellspacing="0" style="width:100%;border-collapse:collapse;">
         <thead>
         <tr style="background:#e5e6eb;">
         <th>MSKU</th><th>品名</th><th>产品类型</th><th>分层</th><th>商品流量标签</th>
         <th>销售额</th><th>当前实际TACOS(%)</th><th>当前实际广告花费</th>
-        <th>单品目标TACOS(%)<br/>【基准只读】</th>
-        <th>单品目标TACOS广告花费<br/>【基准只读】</th>
-        <th>修改的TACOS(%)<br/>【可编辑】</th>
+        <th>单品目标TACOS(%)<br />【基准只读】</th>
+        <th>单品目标TACOS广告花费<br />【基准只读】</th>
+        <th>修改的TACOS(%)<br />【可编辑】</th>
         <th>修改TACOS的广告花费</th>
-        <th>花费差值(修改-基准)<br/>【多花为正】</th>
+        <th>花费差值(修改-基准)<br />【多花为正】</th>
         </tr>
         </thead>
         <tbody id="tb"></tbody>
         </table>
         </div>
-        <br/>
+        <br />
         <button onclick="saveData()" style="background:#165DFF;color:white;padding:6px 14px;border-radius:4px;border:none;">✅ 回传结果到看板（一键复制JSON）</button>
         <div id="tip" style="color:#00875a;display:none;margin:8px 0;">✅JSON已复制到剪贴板！粘贴到下方输入框，点击解析按钮即可</div>
         </div>
@@ -1147,14 +1148,25 @@ else:
         });
         const totalAllow = totalSales * gT / 100;
         const oldBudgetPool = Math.max(0, totalAllow - sumNewAd);
-        const sumOldSales = oldRows.reduce((s, r)=> s + Number(r["销售额"]),0);
 
-        // 老品池统一基准TACOS
-        const poolTacos = sumOldSales > 0 ? (oldBudgetPool / sumOldSales)*100 : 0;
+        // ============ 修改：按老品历史实际广告花费占比分配预算池 ============
+        const sumOldRealAdSpend = oldRows.reduce((s, r)=> s + Number(r["广告花费"]),0);
+
         oldRows.forEach(r=>{
             const sales = Number(r["销售额"]);
-            r.baseTacos = poolTacos;
-            r.baseSpend = sales * poolTacos / 100;
+            const realAdSpend = Number(r["广告花费"]);
+            let baseSpend;
+            // 兜底：老品全部历史广告花费=0，则老品预算池平均分摊
+            if(sumOldRealAdSpend > 0){
+                baseSpend = oldBudgetPool * (realAdSpend / sumOldRealAdSpend);
+            }else{
+                baseSpend = oldBudgetPool / oldRows.length;
+            }
+            // 反算单品基准TACOS（每个老品SKU各自独立）
+            const baseTacos = sales > 0 ? (baseSpend / sales)*100 : 0;
+
+            r.baseTacos = baseTacos;
+            r.baseSpend = baseSpend;
             r.editTacos = r.baseTacos;
             r.editSpend = r.baseSpend;
         })
@@ -1190,7 +1202,6 @@ else:
                 diff = Math.round(diff *100)/100;
 
                 row.editSpend = editSpend;
-
                 sumEditTotal += editSpend;
                 sumBaseOld += baseSpend;
                 sumEditOld += editSpend;
@@ -1369,7 +1380,6 @@ else:
             show_cols = [c for c in show_cols if c in df_show.columns]
             df_show = df_show[show_cols].sort_values("销售额", ascending=False)
 
-
             def color_diff(s):
                 colors = []
                 for v in s:
@@ -1383,7 +1393,6 @@ else:
                         colors.append("")
                 return colors
 
-
             if "花费差值(修改-基准)【多花为正】" in df_show.columns:
                 styled_df = df_show.style.format(format_dict).apply(color_diff,
                                                                     subset=["花费差值(修改-基准)【多花为正】"])
@@ -1392,6 +1401,7 @@ else:
 
             st.dataframe(styled_df, use_container_width=True, height=450)
         st.divider()
+
 
 
 
