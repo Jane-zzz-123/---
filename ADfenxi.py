@@ -6,19 +6,108 @@ import requests
 from io import BytesIO
 import numpy as np
 
-# -------------------------- 页面基础配置 --------------------------
+# ===================== 用户权限配置 =====================
+USER_AUTH = {
+    # 超级管理员（可查看全部店铺）
+    "admin": {
+        "pwd": "@admin1234",
+        "shops": ["全部"]
+    },
+    "黄怡": {
+        "pwd": "syc-huangyi123",
+        "shops": ["思业成-US","创奇-US黄怡D"]
+    },
+    "镱娜": {
+        "pwd": "dx-yyyna123",
+        "shops": ["定行-US","创奇-US镱娜H"]
+    },
+    "小娇": {
+        "pwd": "pt and ys-xiaojiao",
+        "shops": ["拼途-US","艺胜-US","创奇-US小娇C"]
+    },
+    "楷纯": {
+        "pwd": "zy and cr-kaichun",
+        "shops": ["争艳-US","辰瑞-US","创奇-US楷纯E"]
+    },
+    "淑谊": {
+        "pwd": "sx and jy-shuyi",
+        "shops": ["势兴-US","进益-US","创奇-US淑谊F"]
+    },
+    "佰英": {
+        "pwd": "cq-baiying123",
+        "shops": ["创奇-US"]
+    },
+    "李珊": {
+        "pwd": "dm-lishan123",
+        "shops": ["大卖-US","创奇-US李珊G"]
+    },
+    "雨宜": {
+        "pwd": "cq-uuuyi123",
+        "shops": ["创奇-US雨宜B"]
+    },
+}
+
+# session初始化
+if "login_ok" not in st.session_state:
+    st.session_state.login_ok = False
+if "login_username" not in st.session_state:
+    st.session_state.login_username = ""
+if "allow_shops" not in st.session_state:
+    st.session_state.allow_shops = []
+
+def login_page():
+    st.markdown("# 🔐 广告分析看板 - 用户登录")
+    st.divider()
+    with st.form("login_form"):
+        input_user = st.text_input("用户名")
+        input_pwd = st.text_input("密码", type="password")
+        submit_login = st.form_submit_button("登录", type="primary")
+        if submit_login:
+            if input_user not in USER_AUTH:
+                st.error("❌ 用户名不存在")
+            else:
+                user_info = USER_AUTH[input_user]
+                if input_pwd == user_info["pwd"]:
+                    st.session_state.login_ok = True
+                    st.session_state.login_username = input_user
+                    st.session_state.allow_shops = user_info["shops"]
+                    st.success("✅登录成功，正在加载看板...")
+                    st.rerun()
+                else:
+                    st.error("❌密码错误，请重新输入")
+    st.stop()
+
+# 未登录则展示登录页，终止后续执行
+if not st.session_state.login_ok:
+    login_page()
+
+# -------------------------- 页面基础配置（必须紧跟登录逻辑之后，不可挪位置） --------------------------
 st.set_page_config(
     page_title="广告分析看板",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+# ==========页面最顶部：显示当前用户 + 退出登录按钮（页面顶部，不是侧边栏！）==========
+top_col1, top_col2 = st.columns([0.92, 0.08])
+with top_col1:
+    st.markdown(f"👤 当前登录用户：**{st.session_state.login_username}**")
+with top_col2:
+    logout_btn = st.button("🚪退出登录")
+    if logout_btn:
+        st.session_state.login_ok = False
+        st.session_state.login_username = ""
+        st.session_state.allow_shops = []
+        st.rerun()
+
+st.divider()
 st.title("📊 广告分析看板")
 
 # 全局TACOS模拟参数初始化
 if "global_target_tacos_pct" not in st.session_state:
     st.session_state.global_target_tacos_pct = 15.0
 
-# 侧边栏全局TACOS输入控件
+# 侧边栏全局TACOS输入控件（侧边栏只保留原来预算参数，不碰登录相关）
 with st.sidebar:
     st.markdown("### ⚙️预算模拟参数")
     st.session_state.global_target_tacos_pct = st.number_input(
@@ -27,6 +116,7 @@ with st.sidebar:
         help="基准测算使用该值；SKU填写自定义后模拟测算会优先使用单品值"
     )
 GLOBAL_TARGET_TACOS = st.session_state.global_target_tacos_pct / 100
+
 
 
 # -------------------------- 缓存加载原始数据 --------------------------
@@ -65,10 +155,20 @@ df_raw = load_raw_data()
 st.markdown("### 🔍 数据筛选条件（仅单月数据）")
 filter_shop_col, filter_month_col = st.columns([1, 2])
 
-# 1、店铺单选下拉
+# 1、店铺单选下拉【权限过滤】
 with filter_shop_col:
-    shop_list = sorted(df_raw["店铺"].unique())
-    select_shop = st.selectbox("选择分析店铺", shop_list)
+    all_shop_list = sorted(df_raw["店铺"].unique())
+    user_allow_shops = st.session_state.allow_shops
+    if "全部" in user_allow_shops:
+        filter_shop_list = all_shop_list
+    else:
+        filter_shop_list = [s for s in all_shop_list if s in user_allow_shops]
+
+    if len(filter_shop_list) == 0:
+        st.error("⚠️该账号没有可访问店铺，请联系管理员配置权限！")
+        st.stop()
+    select_shop = st.selectbox("选择分析店铺", filter_shop_list)
+
 
 # 2、年月单选下拉，默认最新月份
 with filter_month_col:
