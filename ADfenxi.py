@@ -55,40 +55,43 @@ if "login_username" not in st.session_state:
 if "allow_shops" not in st.session_state:
     st.session_state.allow_shops = []
 
+
 def login_page():
     st.markdown("# 🔐 广告分析看板 - 用户登录")
     st.divider()
+    user_name_list = list(USER_AUTH.keys())
+
     with st.form("login_form"):
-        input_user = st.text_input("用户名")
-        input_pwd = st.text_input("密码", type="password")
+        # ✅ 用户名下拉单选
+        select_user = st.selectbox("请选择用户名", options=user_name_list)
+        input_pwd = st.text_input("请输入密码", type="password")
         submit_login = st.form_submit_button("登录", type="primary")
+
         if submit_login:
-            if input_user not in USER_AUTH:
-                st.error("❌ 用户名不存在")
+            user_info = USER_AUTH[select_user]
+            if input_pwd == user_info["pwd"]:
+                st.session_state.login_ok = True
+                st.session_state.login_username = select_user
+                st.session_state.allow_shops = user_info["shops"]
+                st.success("✅登录成功，正在加载看板...")
+                st.rerun()
             else:
-                user_info = USER_AUTH[input_user]
-                if input_pwd == user_info["pwd"]:
-                    st.session_state.login_ok = True
-                    st.session_state.login_username = input_user
-                    st.session_state.allow_shops = user_info["shops"]
-                    st.success("✅登录成功，正在加载看板...")
-                    st.rerun()
-                else:
-                    st.error("❌密码错误，请重新输入")
+                st.error("❌密码错误，请重新输入")
     st.stop()
 
-# 未登录则展示登录页，终止后续执行
+
+# 未登录展示登录页，终止后续执行
 if not st.session_state.login_ok:
     login_page()
 
-# -------------------------- 页面基础配置（必须紧跟登录逻辑之后，不可挪位置） --------------------------
+# -------------------------- 页面基础配置 --------------------------
 st.set_page_config(
     page_title="广告分析看板",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# ==========页面最顶部：显示当前用户 + 退出登录按钮（页面顶部，不是侧边栏！）==========
+# ==========页面最顶部：当前用户 + 右上角退出登录按钮（不在侧边栏）==========
 top_col1, top_col2 = st.columns([0.92, 0.08])
 with top_col1:
     st.markdown(f"👤 当前登录用户：**{st.session_state.login_username}**")
@@ -107,7 +110,7 @@ st.title("📊 广告分析看板")
 if "global_target_tacos_pct" not in st.session_state:
     st.session_state.global_target_tacos_pct = 15.0
 
-# 侧边栏全局TACOS输入控件（侧边栏只保留原来预算参数，不碰登录相关）
+# 侧边栏：只保留预算模拟参数，无登录相关
 with st.sidebar:
     st.markdown("### ⚙️预算模拟参数")
     st.session_state.global_target_tacos_pct = st.number_input(
@@ -116,6 +119,7 @@ with st.sidebar:
         help="基准测算使用该值；SKU填写自定义后模拟测算会优先使用单品值"
     )
 GLOBAL_TARGET_TACOS = st.session_state.global_target_tacos_pct / 100
+
 
 
 
@@ -168,7 +172,6 @@ with filter_shop_col:
         st.error("⚠️该账号没有可访问店铺，请联系管理员配置权限！")
         st.stop()
     select_shop = st.selectbox("选择分析店铺", filter_shop_list)
-
 
 # 2、年月单选下拉，默认最新月份
 with filter_month_col:
