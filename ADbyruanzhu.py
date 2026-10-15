@@ -1436,6 +1436,142 @@ with st.expander("📋 查看SKU象限明细（可下载）", expanded=False):
         file_name=f"{select_month}_ASoAS_TACOS_象限明细.csv",
         mime="text/csv"
     )
+
+# ===================== 新增 7.6 价格分层分析 低价$0‑10｜中价$10‑15｜高价＞15 =====================
+st.subheader("7.6 价格分层投放分析（低价：$0‑10｜中价：$10‑15｜高价：＞$15）")
+df_price_raw = df_single_item.copy()
+# 计算单品平均售价：销售额 / 订单量；订单=0则置np.nan
+df_price_raw["单品售价"] = np.where(df_price_raw["订单量"] > 0,
+                                    df_price_raw["销售额"] / df_price_raw["订单量"],
+                                    np.nan)
+
+# 价格分层函数
+def price_level_tag(price):
+    if pd.isna(price):
+        return "无销量SKU"
+    elif price <= 10:
+        return "低价款 $0‑10"
+    elif price <=15:
+        return "中价款 $10‑15"
+    else:
+        return "高价款 >$15"
+
+df_price_raw["价格分层"] = df_price_raw["单品售价"].apply(price_level_tag)
+
+# 按【价格分层】聚合指标
+df_price_group = df_price_raw.groupby("价格分层").agg({
+    "广告花费":"sum",
+    "广告销售额":"sum",
+    "销售额":"sum",
+    "广告订单量":"sum",
+    "订单量":"sum",
+    "展示":"sum",
+    "点击":"sum",
+    "MSKU":"count"
+}).rename(columns={"MSKU":"SKU数量"}).reset_index()
+
+# 计算分层衍生指标 TACOS、ACOS
+df_price_group["分层TACOS"] = np.where(df_price_group["销售额"]>0,
+                                       df_price_group["广告花费"]/df_price_group["销售额"], np.nan)
+df_price_group["分层ACOS"] = np.where(df_price_group["广告销售额"]>0,
+                                      df_price_group["广告花费"]/df_price_group["广告销售额"], np.nan)
+
+p1_col, p2_col = st.columns([1.2,1])
+with p1_col:
+    fig_price_spend = go.Figure()
+    fig_price_spend.add_trace(go.Bar(
+        x=df_price_group["价格分层"],
+        y=df_price_group["广告花费"],
+        marker_color=["#E45756","#F58518","#4C78A8","#949494"],
+        customdata=df_price_group[["SKU数量","分层TACOS","分层ACOS"]].values,
+        hovertemplate="%{x}<br>广告花费:$%{y:,.2f}<br>SKU数量:%{customdata[0]}<br>分层TACOS:%{customdata[1]:.2%}<br>分层ACOS:%{customdata[2]:.2%}<extra></extra>"
+    ))
+    fig_price_spend.update_layout(title="各价格分层广告花费",yaxis_title="广告花费($)",height=380)
+    st.plotly_chart(fig_price_spend,use_container_width=True)
+
+with p2_col:
+    fig_price_kpi = go.Figure()
+    fig_price_kpi.add_trace(go.Scatter(
+        x=df_price_group["价格分层"],
+        y=df_price_group["分层TACOS"],
+        name="分层TACOS",
+        mode="lines+markers",marker_size=8,line_width=2
+    ))
+    fig_price_kpi.add_trace(go.Scatter(
+        x=df_price_group["价格分层"],
+        y=df_price_group["分层ACOS"],
+        name="分层ACOS",
+        mode="lines+markers",marker_size=8,line_width=2
+    ))
+    fig_price_kpi.update_layout(title="各价格分层 TACOS & ACOS",yaxis_tickformat=".1%",height=380)
+    st.plotly_chart(fig_price_kpi,use_container_width=True)
+
+# 价格分层统计表格展示
+st.dataframe(df_price_group.style
+             .format({"分层TACOS":"{:.2%}","分层ACOS":"{:.2%}","广告花费":"${:.2f}","广告销售额":"${:.2f}","销售额":"${:.2f}"})
+             ,use_container_width=True)
+
+# 自动解读
+price_interp = []
+price_interp.append(f"店铺本月基准TACOS：{shop_total_tacos:.2%}")
+for _,row in df_price_group.iterrows():
+    t = row["价格分层"]
+    sku_cnt = row["SKU数量"]
+    tacos = row["分层TACOS"]
+    if pd.notna(tacos):
+        flag = "🔴高于店铺TACOS" if tacos>shop_total_tacos else "🟢低于店铺TACOS"
+        price_interp.append(f"- {t}（SKU:{sku_cnt}个）分层TACOS {tacos:.2%} {flag}")
+st.info("\n".join(price_interp))
+
+# ===================== 新增 7.7 CPC与CVR相关性散点图（广告竞价成本 vs 转化能力） =====================
+st.subheader("7.7 CPC单次点击成本 — CVR广告转化率 相关性散点(SKU维度)")
+df_corr = df_single_item.copy()
+# 过滤有效数据：点击>0，CPC、CVR不为空
+df_corr = df_corr[(df_corr["点击"]>0) & df_corr["CPC"].notna() & df_corr["CVR"].notna()].copy()
+if df_corr.empty:
+    st.warning("有效SKU样本不足，无法绘制CPC‑CVR散点（需要SKU有广告点击数据）")
+else:
+    fig_corr = go.Figure()
+    fig_corr.add_trace(go.Scatter(
+        x=df_corr["CPC"],
+        y=df_corr["CVR"],
+        text=df_corr["MSKU"],
+        mode="markers",
+        marker=dict(
+            size=9,
+            color=df_corr["单品TACOS"],
+            colorscale="RdYlGn_r",
+            colorbar=dict(title="单品TACOS"),
+            showscale=True
+        ),
+        customdata=df_corr[["单品售价","单品TACOS","广告花费"]].values,
+        hovertemplate=
+        "MSKU:%{text}<br>"
+        "CPC:$%{x:.2f}<br>"
+        "CVR:%{y:.2%}<br>"
+        "单品售价:$%{customdata[0]:.2f}<br>"
+        "单品TACOS:%{customdata[1]:.2%}<br>"
+        "广告花费:$%{customdata[2]:,.2f}<extra></extra>"
+    ))
+    fig_corr.update_layout(
+        title="SKU维度 CPC(单次点击成本) VS CVR(广告转化率)",
+        xaxis_title="CPC 单次点击成本 ($)",
+        yaxis_title="CVR 广告转化率",
+        yaxis_tickformat=".1%",
+        height=440,
+        hovermode="closest"
+    )
+    st.plotly_chart(fig_corr,use_container_width=True)
+
+    st.info("""
+📌散点解读：
+1. 理想分布：**右上方**：高CPC同时高CVR，出价高转化也高，属于优质SKU；
+2. 左上方：低CPC高CVR：性价比极高，低价拿流量，转化好；
+3. 右下方：**高CPC、低CVR（重点风险）**：出价很贵，但是点击后很难下单，需要优化Listing/评价/价格；
+4. 左下方：低CPC低CVR：流量便宜但是转化差，关键词精准度差；
+> 点颜色越深代表单品TACOS越高，快速定位高成本坏SKU。
+""")
+# ===================== 新增模块结束 =====================
 st.divider()
 
 # ===================== 八、自定义TACOS预算模拟（HTML前端实时计算，按历史广告花费占比分配老品预算） =====================
