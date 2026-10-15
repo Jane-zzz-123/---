@@ -1241,13 +1241,13 @@ with quad_col2:
         t = row["单品TACOS"]
         shop_t = shop_total_tacos
         if a > QUAD_ASOAS_THRESH and t > shop_t:
-            return "右上｜风险区（高ASoAS+高TACOS）"
+            return "风险区（高ASoAS+高TACOS）"
         elif a > QUAD_ASOAS_THRESH and t <= shop_t:
-            return "左上｜广告优质但依赖广告（高ASoAS+低TACOS）"
+            return "广告优质但依赖广告（高ASoAS+低TACOS）"
         elif a <= QUAD_ASOAS_THRESH and t > shop_t:
-            return "右下｜广告浪费区（低ASoAS+高TACOS）"
+            return "广告浪费区（低ASoAS+高TACOS）"
         else:
-            return "左下｜健康区优质款（低ASoAS+低TACOS）"
+            return "健康区优质款（低ASoAS+低TACOS）"
     df_quad_sku["quad_group"] = df_quad_sku.apply(get_quad, axis=1)
     quad_stats = df_quad_sku["quad_group"].value_counts()
     total_sku = len(df_quad_sku)
