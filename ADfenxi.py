@@ -1311,6 +1311,63 @@ with st.expander("📋 查看SKU象限明细（可下载）", expanded=False):
         file_name=f"{select_month}_ASoAS_TACOS_象限明细.csv",
         mime="text/csv"
     )
+
+# ===================== 新增 7.7 CPC与CVR相关性散点图（广告竞价成本 vs 转化能力） =====================
+st.subheader("7.7 CPC单次点击成本 — CVR广告转化率 相关性散点(SKU维度)")
+# 独立从单品明细表复制，内部自行计算单品售价，不依赖7.6价格分层模块
+df_corr = df_single_item.copy()
+# 独立计算单品售价：销售额 / 订单量；订单=0置np.nan
+df_corr["单品售价"] = np.where(df_corr["订单量"] > 0,
+                               df_corr["销售额"] / df_corr["订单量"],
+                               np.nan)
+
+# 过滤有效数据：点击>0，CPC、CVR不为空
+df_corr = df_corr[(df_corr["点击"]>0) & df_corr["CPC"].notna() & df_corr["CVR"].notna()].copy()
+
+if df_corr.empty:
+    st.warning("有效SKU样本不足，无法绘制CPC‑CVR散点（需要SKU有广告点击数据）")
+else:
+    fig_corr = go.Figure()
+    fig_corr.add_trace(go.Scatter(
+        x=df_corr["CPC"],
+        y=df_corr["CVR"],
+        text=df_corr["MSKU"],
+        mode="markers",
+        marker=dict(
+            size=9,
+            color=df_corr["单品TACOS"],
+            colorscale="RdYlGn_r",
+            colorbar=dict(title="单品TACOS"),
+            showscale=True
+        ),
+        customdata=df_corr[["单品售价","单品TACOS","广告花费"]].values,
+        hovertemplate=
+        "MSKU:%{text}<br>"
+        "CPC:$%{x:.2f}<br>"
+        "CVR:%{y:.2%}<br>"
+        "单品售价:$%{customdata[0]:.2f}<br>"
+        "单品TACOS:%{customdata[1]:.2%}<br>"
+        "广告花费:$%{customdata[2]:,.2f}<extra></extra>"
+    ))
+    fig_corr.update_layout(
+        title="SKU维度 CPC(单次点击成本) VS CVR(广告转化率)",
+        xaxis_title="CPC 单次点击成本 ($)",
+        yaxis_title="CVR 广告转化率",
+        yaxis_tickformat=".1%",
+        height=440,
+        hovermode="closest"
+    )
+    st.plotly_chart(fig_corr,use_container_width=True)
+
+    st.info("""
+📌散点解读：
+1. ✅【最优｜左上方】**低CPC + 高CVR**：点击成本低，同时转化率高，性价比之王，优先加大投放。
+2. ⚠️【尚可｜右上方】**高CPC + 高CVR**：出价贵，但转化能力强，可以维持投放，注意设置竞价上限，避免成本失控。
+3. 🔴【风险｜右下方】**高CPC、低CVR**：出价很贵，但是点击后很难下单。重点治理：优化Listing、评价、价格，或者降低竞价/收缩广告。
+4. 🟡【待优化｜左下方】**低CPC、低CVR**：点击便宜，但流量精准度差，点击不容易出单；建议清理宽泛无效关键词。
+> 点颜色越深代表单品TACOS越高，快速定位高成本坏SKU。
+""")
+# ===================== 新增模块结束 =====================
 st.divider()
 
 # ===================== 八、自定义TACOS预算模拟（HTML前端实时计算，按历史广告花费占比分配老品预算） =====================
