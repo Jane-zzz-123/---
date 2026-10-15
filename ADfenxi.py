@@ -1118,6 +1118,207 @@ text_lines.append(f"""
 st.markdown("\n".join(text_lines))
 st.divider()
 
+# -------------------------- ⑤80/20帕累托分析（SKU维度） --------------------------
+st.subheader("SKU帕累托80‑20分析")
+df_pareto = df_single_item[df_single_item["销售额"]>0].copy()
+# 调试信息
+sum_pareto_sales = df_pareto["销售额"].sum()
+st.write(f"df_pareto子集内销售额合计：${sum_pareto_sales:,.2f}")
+st.write(f"店铺全局总销售额curr_sales：${curr_sales:,.2f}")
+
+df_pareto = df_pareto.sort_values("销售额", ascending=False).reset_index(drop=True)
+# 计算累计占比
+df_pareto["销售额累计"] = df_pareto["销售额"].cumsum()
+total_s_pareto = df_pareto["销售额"].sum()
+df_pareto["销售额累计占比"] = df_pareto["销售额累计"] / total_s_pareto
+
+df_pareto["广告花费累计"] = df_pareto["广告花费"].cumsum()
+total_spend_pareto = df_pareto["广告花费"].sum()
+df_pareto["广告花费累计占比"] = df_pareto["广告花费累计"] / total_spend_pareto
+
+# 帕累托曲线
+fig_pareto = go.Figure()
+fig_pareto.add_trace(go.Scatter(
+    x=list(range(len(df_pareto))), y=df_pareto["销售额累计占比"],
+    name="销售额累计占比", mode="lines+markers", line=dict(color="#E45756",width=2),
+    hovertemplate="SKU序号 %{x}<br>销售额累计占比：%{y:.2%}<extra></extra>"
+))
+fig_pareto.add_trace(go.Scatter(
+    x=list(range(len(df_pareto))), y=df_pareto["广告花费累计占比"],
+    name="广告花费累计占比", mode="lines+markers", line=dict(color="#4C78A8",width=2),
+    hovertemplate="SKU序号 %{x}<br>广告花费累计占比：%{y:.2%}<extra></extra>"
+))
+fig_pareto.add_hline(y=0.8, line_dash="dash", line_color="gray", annotation_text="80%参考线")
+fig_pareto.update_layout(
+    title="SKU帕累托曲线（按销售额降序）X轴：SKU序号",
+    yaxis_tickformat=".1%", yaxis_title="累计占比",
+    xaxis_title="SKU数量(排序后)",
+    legend=dict(orientation="h",yanchor="bottom",y=1.02,xanchor="left",x=0),
+    height=400
+)
+st.plotly_chart(fig_pareto, use_container_width=True)
+
+# ==========【修复核心：找第一个>=80%的行索引，不再用idxmin】==========
+cond_sales = df_pareto["销售额累计占比"] >= 0.8
+if cond_sales.any():
+    # 取按顺序第一个满足条件的索引
+    idx_80_sales = cond_sales[cond_sales].index[0]
+    cnt_80sales_sku = idx_80_sales + 1
+    pct_80sales_sku = cnt_80sales_sku / len(df_pareto)
+    top1_ratio = df_pareto["销售额累计占比"].iloc[0]
+    st.caption(f"📊销售集中度：前{cnt_80sales_sku}个SKU合计贡献店铺80%销售额，占全部有效SKU数量 {pct_80sales_sku:.2%}；TOP1单品占总销售 {top1_ratio:.2%}")
+else:
+    st.caption("📊销售集中度：所有SKU累加仍未达到80%阈值")
+
+# 额外增加广告花费维度帕累托统计（对比看广告资源集中度）
+cond_spend = df_pareto["广告花费累计占比"] >=0.8
+if cond_spend.any():
+    idx_80_spend = cond_spend[cond_spend].index[0]
+    cnt_80_spend_sku = idx_80_spend +1
+    pct_80_spend_sku = cnt_80_spend_sku / len(df_pareto)
+    st.caption(f"📢广告花费集中度：前{cnt_80_spend_sku}个SKU吃掉80%广告预算，占全部有效SKU数量 {pct_80_spend_sku:.2%}")
+
+st.info("💡解读：曲线越早触碰80%横线，代表业绩越集中在头部SKU；对比两条线：若销售80%所需SKU数量少于广告花费80%所需SKU数量，代表头部爆款广告投产更优。")
+
+
+# -------------------------- ⑥ASoAS & TACOS 联合矩阵四象限散点图 --------------------------
+st.subheader(" ASoAS & TACOS 四象限矩阵分析")
+
+# ========== 定义四象限阈值（统一50% ASoAS分界；TACOS分界=店铺整体TACOS）==========
+QUAD_ASOAS_THRESH = 0.50
+
+quad_col1, quad_col2 = st.columns([1,1])
+# 左：历史月度四象限
+with quad_col1:
+    df_quad_month = df_all_month_table.copy()
+    fig_quad_month = go.Figure()
+    fig_quad_month.add_trace(go.Scatter(
+        x=df_quad_month["ASoAS广告销售依赖度"],
+        y=df_quad_month["TACOS广告花费占比"],
+        text=df_quad_month["年月"],
+        mode="markers+text",
+        marker=dict(size=10,color="#165DFF"),
+        hovertemplate="月份:%{text}<br>ASoAS:%{x:.2%}<br>TACOS:%{y:.2%}<extra></extra>"
+    ))
+    fig_quad_month.add_vline(x=QUAD_ASOAS_THRESH, line_dash="dash", line_color="#aaaaaa")
+    fig_quad_month.add_hline(y=GLOBAL_TARGET_TACOS, line_dash="dash", line_color="#ff7700",annotation_text=f"目标TACOS {GLOBAL_TARGET_TACOS:.1%}")
+    fig_quad_month.update_layout(
+        title="历史月份四象限",
+        xaxis_title="ASoAS广告销售依赖度", xaxis_tickformat=".1%",
+        yaxis_title="TACOS广告花费占比", yaxis_tickformat=".1%",
+        height=420
+    )
+    st.plotly_chart(fig_quad_month, use_container_width=True)
+
+# 右：当月SKU维度四象限
+with quad_col2:
+    df_quad_sku = df_single_item.copy()
+    # SKU维度ASoAS：单品广告销售额 /单品总销售额
+    df_quad_sku["sku_ASoAS"] = np.where(df_quad_sku["销售额"]>0, df_quad_sku["广告销售额"]/df_quad_sku["销售额"], np.nan)
+    df_quad_sku = df_quad_sku.dropna(subset=["sku_ASoAS","单品TACOS"])
+
+    # ========== 四象限标签分类 & 统计数量（统一50% ASoAS分界，TACOS以店铺整体TACOS为界） ==========
+    def get_quad(row):
+        a = row["sku_ASoAS"]
+        t = row["单品TACOS"]
+        shop_t = shop_total_tacos
+        if a > QUAD_ASOAS_THRESH and t > shop_t:
+            return "右上｜风险区（高ASoAS+高TACOS）"
+        elif a > QUAD_ASOAS_THRESH and t <= shop_t:
+            return "左上｜广告优质但依赖广告（高ASoAS+低TACOS）"
+        elif a <= QUAD_ASOAS_THRESH and t > shop_t:
+            return "右下｜广告浪费区（低ASoAS+高TACOS）"
+        else:
+            return "左下｜健康区优质款（低ASoAS+低TACOS）"
+    df_quad_sku["quad_group"] = df_quad_sku.apply(get_quad, axis=1)
+    quad_stats = df_quad_sku["quad_group"].value_counts()
+    total_sku = len(df_quad_sku)
+
+    fig_quad_sku = go.Figure()
+    fig_quad_sku.add_trace(go.Scatter(
+        x=df_quad_sku["sku_ASoAS"],
+        y=df_quad_sku["单品TACOS"],
+        text=df_quad_sku["MSKU"],
+        mode="markers",
+        marker=dict(size=8,color="#E45756"),
+        hovertemplate="MSKU:%{text}<br>单品ASoAS:%{x:.2%}<br>单品TACOS:%{y:.2%}<extra></extra>"
+    ))
+    # 虚线保持50%，和统计逻辑完全对齐
+    fig_quad_sku.add_vline(x=QUAD_ASOAS_THRESH, line_dash="dash", line_color="#aaaaaa")
+    fig_quad_sku.add_hline(y=shop_total_tacos, line_dash="dash", line_color="#ff7700",annotation_text=f"店铺TACOS {shop_total_tacos:.1%}")
+    fig_quad_sku.update_layout(
+        title=f"{select_month} SKU四象限散点",
+        xaxis_title="单品ASoAS(广告销售占该SKU总销售)", xaxis_tickformat=".1%",
+        yaxis_title="单品TACOS", yaxis_tickformat=".1%",
+        height=420
+    )
+    st.plotly_chart(fig_quad_sku, use_container_width=True)
+
+# ====================== 下方：象限详细解读 + 自动统计结果 ======================
+st.markdown("### 📍四象限定义（分界阈值：ASoAS=50%，TACOS分界=店铺整体TACOS）")
+st.markdown("""
+🟥 **右上【高 ASoAS + 高 TACOS｜风险区】** ASoAS＞50%，单品TACOS＞店铺整体TACOS
+> 含义：销量高度依赖广告，广告成本高于店铺平均水平。
+> 业务风险：一旦下调广告预算，销量会明显跳水；广告投产较差，利润被广告费大量侵蚀。
+> 动作：优先重点优化，下调竞价、精简低效关键词以压低TACOS；同步发力自然排名，降低广告销售依赖。
+
+🟨 **左上【高 ASoAS + 低 TACOS｜广告优质但依赖广告】** ASoAS＞50%，单品TACOS＜店铺整体TACOS
+> 含义：广告投产效率良好，但是出单高度依靠广告，自然流量薄弱。
+> 风险：不是广告成本问题，而是流量结构单一，长期存在结构性隐患。
+> 动作：维持现有广告投放，重点做关键词埋词、评价积累、自然排名优化，拉动自然订单，降低ASoAS依赖。
+
+🟧 **右下【低 ASoAS + 高 TACOS｜广告浪费区】** ASoAS＜50%，单品TACOS＞店铺整体TACOS
+> 含义：广告花费较高，但广告带来的销售额占比很低；大部分订单本身是自然订单。
+> 本质：广告在抢夺原本就能成交的自然订单，预算低效内卷，广告花费存在浪费。
+> 动作：收缩广告预算、降低竞价，减少广告对自然订单的蚕食。
+
+🟩 **左下【低 ASoAS + 低 TACOS｜健康区，优质款】** ASoAS＜50%，单品TACOS＜店铺整体TACOS
+> 含义：自然流量基础强，广告成本可控，流量结构健康，利润质量最优。
+> 动作：维持现有策略，广告仅少量辅助卡位，重点保护自然排名。
+""")
+
+# 输出自动统计面板
+st.markdown("### 📊 当月SKU象限数量统计")
+stats_text = []
+for quad_name, cnt in quad_stats.items():
+    pct = cnt / total_sku
+    stats_text.append(f"- {quad_name}：**{cnt}个SKU**，占有效SKU {pct:.1%}")
+stats_text.append(f"> 参与统计有效SKU总数：{total_sku}")
+st.markdown("\n".join(stats_text))
+
+# 自动业务小结（根据象限数量判断）
+risk_cnt = quad_stats.get("右上｜风险区（高ASoAS+高TACOS）",0)
+waste_cnt = quad_stats.get("右下｜广告浪费区（低ASoAS+高TACOS）",0)
+good_cnt = quad_stats.get("左下｜健康区优质款（低ASoAS+低TACOS）",0)
+if risk_cnt > total_sku * 0.3:
+    summary = f"⚠️重点提示：风险区SKU数量较多（{risk_cnt}个），为本月核心问题集群，需要优先集中优化广告与自然流量。"
+elif waste_cnt > total_sku * 0.25:
+    summary = f"⚠️重点提示：广告浪费区SKU较多（{waste_cnt}个），大量预算用于抢夺自然单，建议批量收缩广告投放。"
+elif good_cnt / total_sku >0.4:
+    summary = f"✅健康度较好：健康区优质款占比高（{good_cnt}个），店铺流量结构优质。"
+else:
+    summary = "📌现状：SKU分布较为分散，建议优先治理风险区SKU，逐步培育健康款。"
+st.info(summary)
+
+# ========== 折叠面板：SKU象限明细预览 + CSV下载 ==========
+with st.expander("📋 查看SKU象限明细（可下载）", expanded=False):
+    # 展示预览表，格式化百分比
+    df_preview = df_quad_sku[["MSKU", "sku_ASoAS", "单品TACOS", "quad_group"]].copy()
+    df_preview["sku_ASoAS"] = df_preview["sku_ASoAS"].apply(lambda x: f"{x:.1%}")
+    df_preview["单品TACOS"] = df_preview["单品TACOS"].apply(lambda x: f"{x:.1%}")
+    st.dataframe(df_preview, use_container_width=True)
+
+    # 导出原始数据（保留浮点，方便Excel后续计算）
+    df_export = df_quad_sku[["MSKU", "sku_ASoAS", "单品TACOS", "quad_group"]].copy()
+    csv_data = df_export.to_csv(index=False, encoding="utf-8-sig")
+    st.download_button(
+        label="📥 下载CSV明细",
+        data=csv_data,
+        file_name=f"{select_month}_ASoAS_TACOS_象限明细.csv",
+        mime="text/csv"
+    )
+st.divider()
+
 # ===================== 八、自定义TACOS预算模拟（HTML前端实时计算，按历史广告花费占比分配老品预算） =====================
 st.markdown("## 📈 八、自定义TACOS预算模拟")
 shop_total_tacos = df_month_single["TACOS广告花费占比"].iloc[0]
