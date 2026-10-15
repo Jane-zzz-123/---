@@ -1525,9 +1525,11 @@ st.info("\n".join(price_interp))
 
 # ===================== 新增 7.7 CPC与CVR相关性散点图（广告竞价成本 vs 转化能力） =====================
 st.subheader("7.7 CPC单次点击成本 — CVR广告转化率 相关性散点(SKU维度)")
-df_corr = df_single_item.copy()
+# 修复：直接复用df_price_raw，已经计算好单品售价，不再重新copy df_single_item
+df_corr = df_price_raw.copy()
 # 过滤有效数据：点击>0，CPC、CVR不为空
 df_corr = df_corr[(df_corr["点击"]>0) & df_corr["CPC"].notna() & df_corr["CVR"].notna()].copy()
+
 if df_corr.empty:
     st.warning("有效SKU样本不足，无法绘制CPC‑CVR散点（需要SKU有广告点击数据）")
 else:
@@ -1572,6 +1574,7 @@ else:
 > 点颜色越深代表单品TACOS越高，快速定位高成本坏SKU。
 """)
 # ===================== 新增模块结束 =====================
+
 st.divider()
 
 # ===================== 八、自定义TACOS预算模拟（HTML前端实时计算，按历史广告花费占比分配老品预算） =====================
