@@ -1307,7 +1307,7 @@ st.info("💡解读：曲线越早触碰80%横线，代表业绩越集中在头�
 
 
 # -------------------------- ⑥ASoAS & TACOS 联合矩阵四象限散点图 --------------------------
-st.subheader("7.6 ASoAS & TACOS 四象限矩阵分析")
+st.subheader("7.5 ASoAS & TACOS 四象限矩阵分析")
 
 # ========== 定义四象限阈值（统一50% ASoAS分界；TACOS分界=店铺整体TACOS）==========
 QUAD_ASOAS_THRESH = 0.50
