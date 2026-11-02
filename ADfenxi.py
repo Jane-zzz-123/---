@@ -1297,7 +1297,7 @@ st.info(summary)
 # ========== 折叠面板：SKU象限明细预览 + CSV下载 ==========
 with st.expander("📋 查看SKU象限明细（可下载）", expanded=False):
     # 展示预览表，格式化百分比
-    df_preview = df_quad_sku[["MSKU", "sku_ASoAS", "单品TACOS", "quad_group"]].copy()
+    df_preview = df_quad_sku[["MSKU", "品名","sku_ASoAS", "单品TACOS", "quad_group"]].copy()
     df_preview["sku_ASoAS"] = df_preview["sku_ASoAS"].apply(lambda x: f"{x:.1%}")
     df_preview["单品TACOS"] = df_preview["单品TACOS"].apply(lambda x: f"{x:.1%}")
     st.dataframe(df_preview, use_container_width=True)
